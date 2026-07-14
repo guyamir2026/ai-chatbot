@@ -1,0 +1,91 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="page-header animate-fade-in">
+    <h1><i class="bi bi-plus-circle"></i> קמפיין חדש — שלב 1: בחירת תבנית</h1>
+</div>
+
+<!-- stepper -->
+<div class="animate-slide-up stagger-1" style="display: flex; gap: 0.5rem; margin-bottom: var(--space-sm); align-items: center;">
+    <div class="stat-pill" style="padding: 0.5rem 1rem; background: var(--primary); color: white; border-radius: var(--radius);">
+        <strong>1.</strong> בחירת תבנית
+    </div>
+    <i class="bi bi-chevron-left" style="color: var(--text-muted);"></i>
+    <div class="stat-pill" style="padding: 0.5rem 1rem; background: var(--bg-secondary); border-radius: var(--radius); color: var(--text-muted);">
+        2. מיפוי + קהל
+    </div>
+    <i class="bi bi-chevron-left" style="color: var(--text-muted);"></i>
+    <div class="stat-pill" style="padding: 0.5rem 1rem; background: var(--bg-secondary); border-radius: var(--radius); color: var(--text-muted);">
+        3. תזמון ושליחה
+    </div>
+</div>
+
+{% set _category_labels = {'MARKETING': 'שיווק', 'UTILITY': 'שירות', 'AUTHENTICATION': 'אימות'} %}
+
+<div class="card animate-slide-up stagger-2">
+    <div class="card-header">
+        <span><i class="bi bi-whatsapp"></i> בחרו תבנית</span>
+    </div>
+    <div class="card-body">
+        {% if approved_templates or pending_templates %}
+        <form method="POST" action="/broadcast/campaigns/new">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+
+            <div class="form-group" style="margin-bottom: var(--space-sm);">
+                <label class="form-label" for="template_sid">
+                    <strong>תבנית:</strong>
+                </label>
+                <select name="template_sid" id="template_sid" class="form-control" required>
+                    <option value="">— בחרו תבנית —</option>
+                    {% if approved_templates %}
+                    <optgroup label="✓ מאושרות ע״י Meta — ניתן לשלוח מיד">
+                        {% for t in approved_templates %}
+                        <option value="{{ t.content_sid }}"
+                                {% if pre_selected_sid == t.content_sid %}selected{% endif %}>
+                            {{ t.friendly_name }}
+                            {% if t.category %}— {{ _category_labels.get(t.category, t.category) }}{% endif %}
+                        </option>
+                        {% endfor %}
+                    </optgroup>
+                    {% endif %}
+                    {% if pending_templates %}
+                    <optgroup label="⏳ בהמתנה / לא אושרו — ניתן להכין טיוטה בלבד">
+                        {% for t in pending_templates %}
+                        <option value="{{ t.content_sid }}"
+                                {% if pre_selected_sid == t.content_sid %}selected{% endif %}>
+                            {{ t.friendly_name }}
+                            — {{ t.approval_status }}
+                        </option>
+                        {% endfor %}
+                    </optgroup>
+                    {% endif %}
+                </select>
+                <div class="text-small text-muted" style="margin-top: 0.25rem; line-height: 1.6;">
+                    תבניות <strong>מאושרות</strong> ניתנות לשליחה מיד. תבניות
+                    <strong>בהמתנה</strong> (pending/rejected/unsubmitted) ניתן להכין
+                    כטיוטה ולשלוח אחרי אישור Meta (סנכרון יעדכן את הסטטוס).
+                    לרשימה המלאה: <a href="/broadcast/templates">תבניות WhatsApp</a>.
+                </div>
+            </div>
+
+            <div style="display: flex; gap: 0.5rem; margin-top: var(--space-sm);">
+                <button type="submit" class="btn btn-primary">
+                    המשך <i class="bi bi-chevron-left"></i>
+                </button>
+                <a href="/broadcast/campaigns" class="btn btn-secondary">
+                    ביטול
+                </a>
+            </div>
+        </form>
+        {% else %}
+        <div style="text-align: center; padding: var(--space-md); color: var(--text-muted);">
+            <i class="bi bi-exclamation-triangle" style="font-size: 2rem; display: block; margin-bottom: 0.5rem;"></i>
+            <p>אין תבניות במערכת עדיין. התחילו מסנכרון מ-Twilio.</p>
+            <a href="/broadcast/templates" class="btn btn-primary">
+                <i class="bi bi-arrow-repeat"></i> סנכרן תבניות מ-Twilio
+            </a>
+        </div>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}
