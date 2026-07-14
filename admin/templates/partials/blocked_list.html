@@ -1,0 +1,39 @@
+<div id="blocked-list">
+{% if blocked_users %}
+<table class="table">
+    <thead>
+        <tr>
+            <th>משתמש</th>
+            <th>מזהה</th>
+            <th>סיבה</th>
+            <th>תאריך חסימה</th>
+            <th>פעולות</th>
+        </tr>
+    </thead>
+    <tbody>
+    {% for u in blocked_users %}
+        <tr>
+            <td data-label="משתמש">{{ (u.username or '—')|mask_name }}</td>
+            <td data-label="מזהה">{{ u.user_id|mask_name }}</td>
+            <td data-label="סיבה">{{ u.reason or '—' }}</td>
+            <td data-label="תאריך חסימה">{{ u.blocked_at|il_datetime }}</td>
+            <td data-label="פעולות">
+                <button class="btn btn-sm btn-secondary"
+                        hx-post="/audience/unblock"
+                        hx-vals='{"user_id": "{{ u.user_id }}"}'
+                        hx-target="#blocked-list"
+                        hx-swap="outerHTML"
+                        hx-confirm="לשחרר את {{ (u.username or u.user_id)|mask_name }} מחסימה?">
+                    <i class="bi bi-unlock"></i> שחרור
+                </button>
+            </td>
+        </tr>
+    {% endfor %}
+    </tbody>
+</table>
+{% else %}
+<div class="text-muted" style="padding:1rem;text-align:center;">
+    <i class="bi bi-check-circle"></i> אין משתמשים חסומים
+</div>
+{% endif %}
+</div>
