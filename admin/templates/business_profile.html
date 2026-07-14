@@ -59,7 +59,7 @@
             <div class="form-group" style="margin-bottom: var(--space-md);">
                 <label class="form-label" style="font-weight: 600;">שירותים</label>
                 <div class="text-small text-muted" style="margin-bottom: var(--space-sm);">
-                    שם השירות + כינויים שלקוחות משתמשים בהם (מופרדים בפסיק) + קטגוריה.
+                    שם השירות + כינויים שלקוחות משתמשים בהם (מופרדים בפסיק).
                     ה-extractor משתמש בזה כדי לזהות שלקוחה שכותבת "הטיפול הקבוע"
                     מתכוונת ל"מניקור ג'ל" (vocabulary fact).
                 </div>
@@ -68,9 +68,8 @@
                     <table style="width:100%; border-collapse: collapse;">
                         <thead>
                             <tr>
-                                <th style="text-align:right; padding:6px; width:30%;">שם השירות</th>
-                                <th style="text-align:right; padding:6px; width:35%;">כינויים (CSV)</th>
-                                <th style="text-align:right; padding:6px; width:25%;">קטגוריה</th>
+                                <th style="text-align:right; padding:6px; width:40%;">שם השירות</th>
+                                <th style="text-align:right; padding:6px; width:52%;">כינויים (CSV)</th>
                                 <th style="width:48px;"></th>
                             </tr>
                         </thead>
@@ -85,10 +84,6 @@
                                     <input type="text" class="form-control" name="service_aliases"
                                            value="{{ (s.aliases or []) | join(', ') }}"
                                            placeholder="תספורת, גזירה" maxlength="200">
-                                </td>
-                                <td style="padding:4px;">
-                                    <input type="text" class="form-control" name="service_category"
-                                           value="{{ s.category or '' }}" placeholder="תספורות" maxlength="50">
                                 </td>
                                 <td style="padding:4px; text-align:center;">
                                     <button type="button" class="btn btn-sm btn-outline-danger"
@@ -113,10 +108,6 @@
                         <td style="padding:4px;">
                             <input type="text" class="form-control" name="service_aliases"
                                    placeholder="כינוי1, כינוי2" maxlength="200">
-                        </td>
-                        <td style="padding:4px;">
-                            <input type="text" class="form-control" name="service_category"
-                                   placeholder="קטגוריה" maxlength="50">
                         </td>
                         <td style="padding:4px; text-align:center;">
                             <button type="button" class="btn btn-sm btn-outline-danger"

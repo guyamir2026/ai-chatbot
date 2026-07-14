@@ -3173,10 +3173,11 @@ self.addEventListener('notificationclick', (event) => {
             biz_name = (request.form.get("business_name_field") or "").strip()
             what_matters = (request.form.get("what_matters_for_extraction") or "").strip()
 
-            # שירותים דינמיים — שלוש רשימות מקבילות מ-getlist
+            # שירותים דינמיים — שתי רשימות מקבילות מ-getlist (שם + כינויים).
+            # אין קטגוריה: ה-extractor מזהה vocabulary לפי name+aliases בלבד
+            # (memory/prompts/fact_extractor.txt), קטגוריה הייתה רעש לא-בשימוש.
             names = [s.strip() for s in request.form.getlist("service_name")]
             aliases_raw = [s.strip() for s in request.form.getlist("service_aliases")]
-            categories = [s.strip() for s in request.form.getlist("service_category")]
 
             services = []
             for i, nm in enumerate(names):
@@ -3184,11 +3185,9 @@ self.addEventListener('notificationclick', (event) => {
                     continue  # שורה ריקה — מדלגים (משתמש לחץ "הוסף" ולא מילא)
                 aliases_csv = aliases_raw[i] if i < len(aliases_raw) else ""
                 aliases = [a.strip() for a in aliases_csv.split(",") if a.strip()]
-                category = categories[i] if i < len(categories) else ""
                 services.append({
                     "name": nm,
                     "aliases": aliases,
-                    "category": category,
                 })
 
             db.upsert_business_profile({

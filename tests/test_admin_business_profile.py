@@ -83,7 +83,7 @@ class TestBusinessProfileGET:
             "business_type": "מספרה",
             "business_name": "סטודיו לירון",
             "services_json": json.dumps([
-                {"name": "תספורת", "aliases": ["גזירה", "סטייל"], "category": "תספורות"},
+                {"name": "תספורת", "aliases": ["גזירה", "סטייל"]},
             ], ensure_ascii=False),
             "what_matters_for_extraction": "סוג שיער, אורך מועדף",
         })
@@ -116,7 +116,7 @@ class TestBusinessProfilePOST:
         assert json.loads(prof["services_json"]) == []
 
     def test_post_saves_services_parallel_arrays(self, client, db_conn):
-        """3 רשימות מקבילות (name/aliases/category) מתאחדות לאובייקטים."""
+        """2 רשימות מקבילות (name/aliases) מתאחדות לאובייקטים. אין קטגוריה."""
         from database import get_business_profile
 
         # MultiDict כדי להעביר ערכים כפולים לאותו key — Werkzeug 3+ דורש
@@ -127,10 +127,8 @@ class TestBusinessProfilePOST:
         data.add("what_matters_for_extraction", "סוג עור, רגישויות")
         data.add("service_name", "מניקור ג'ל")
         data.add("service_aliases", "מניקור, ג'ל")
-        data.add("service_category", "ציפורניים")
         data.add("service_name", "פדיקור רפואי")
         data.add("service_aliases", "פדיקור")
-        data.add("service_category", "רגליים")
         client.post("/business-profile", data=data)
 
         prof = get_business_profile("default")
@@ -138,7 +136,7 @@ class TestBusinessProfilePOST:
         assert len(services) == 2
         assert services[0]["name"] == "מניקור ג'ל"
         assert services[0]["aliases"] == ["מניקור", "ג'ל"]
-        assert services[0]["category"] == "ציפורניים"
+        assert "category" not in services[0]  # קטגוריה הוסרה מהסכמה
         assert services[1]["name"] == "פדיקור רפואי"
         assert services[1]["aliases"] == ["פדיקור"]
 
@@ -152,10 +150,8 @@ class TestBusinessProfilePOST:
         data.add("what_matters_for_extraction", "")
         data.add("service_name", "שירות תקין")
         data.add("service_aliases", "")
-        data.add("service_category", "קטגוריה")
         data.add("service_name", "")  # ריק — מדלגים
         data.add("service_aliases", "כינוי")
-        data.add("service_category", "שלא יופיע")
         client.post("/business-profile", data=data)
 
         services = json.loads(get_business_profile("default")["services_json"])
@@ -172,7 +168,6 @@ class TestBusinessProfilePOST:
         data.add("what_matters_for_extraction", "")
         data.add("service_name", "A")
         data.add("service_aliases", "  alias1 ,  alias2  ,, alias3,  ")
-        data.add("service_category", "cat")
         client.post("/business-profile", data=data)
 
         services = json.loads(get_business_profile("default")["services_json"])
