@@ -1,0 +1,50 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="page-header animate-fade-in">
+    <h1><i class="bi bi-person-lines-fill"></i> זיכרון לקוחות</h1>
+</div>
+
+<div class="card animate-slide-up">
+    <div class="card-body" style="padding: 0;">
+        {% if users %}
+        <div class="table-wrapper">
+            <table>
+                <thead>
+                    <tr>
+                        <th>לקוחה</th>
+                        <th>מספר עובדות</th>
+                        <th>עדכון אחרון</th>
+                        <th>פעולות</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for u in users %}
+                    <tr>
+                        <td data-label="לקוחה">
+                            {{ (u.username or u.user_id) | mask_name }}
+                        </td>
+                        <td data-label="מספר עובדות">{{ u.fact_count }}</td>
+                        <td data-label="עדכון אחרון" class="text-small text-muted">
+                            {{ u.last_update|il_datetime }}
+                        </td>
+                        <td data-label="פעולות">
+                            <a class="btn btn-primary btn-sm"
+                               href="/customer-memory/{{ u.user_id|urlencode }}">
+                                <i class="bi bi-eye"></i> צפייה
+                            </a>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% else %}
+        <div class="empty-state">
+            <i class="bi bi-person-x"></i>
+            <p>עדיין לא הצטברו עובדות על לקוחות.</p>
+        </div>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}
