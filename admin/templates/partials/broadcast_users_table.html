@@ -1,0 +1,95 @@
+<!-- partial: טבלת משתמשים מסוננת לברודקאסט מותאם אישית -->
+<div id="users-table-container">
+    <!-- hidden inputs לסינון בצד השרת כש"בחר הכל" פעיל על מספר עמודים -->
+    <input type="hidden" id="select-all-filtered" name="select_all_filtered" value="0">
+    <input type="hidden" id="filter-inactive-days" name="filter_inactive_days" value="{{ inactive_days or '' }}">
+    <input type="hidden" id="filter-search" name="filter_search" value="{{ search or '' }}">
+
+    <div style="margin-bottom: 0.5rem; display: flex; justify-content: space-between; align-items: center;">
+        <span class="text-small text-muted">
+            <i class="bi bi-people"></i> נמצאו: <strong id="custom-user-count">{{ total }}</strong> לקוחות
+        </span>
+        {% if total > 0 %}
+        <label style="display: flex; align-items: center; gap: 0.5rem; cursor: pointer;">
+            <input type="checkbox" id="select-all-users"
+                   onchange="toggleAllUsers(this, {{ total_pages }})"
+                   data-total="{{ total }}">
+            {% if total_pages > 1 %}
+            <span class="text-small">בחר את כל {{ total }} המסוננים</span>
+            {% else %}
+            <span class="text-small">בחר הכל ({{ total }})</span>
+            {% endif %}
+        </label>
+        {% endif %}
+    </div>
+
+    {% if users %}
+    <div class="table-responsive" style="max-height: 400px; overflow-y: auto;">
+        <table class="table">
+            <thead style="position: sticky; top: 0; z-index: 1;">
+                <tr>
+                    <th style="width: 40px;"></th>
+                    <th>שם</th>
+                    <th>פעילות אחרונה</th>
+                    <th>הודעות</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for user in users %}
+                <tr>
+                    <td>
+                        <input type="checkbox" class="user-checkbox"
+                               name="selected_users" value="{{ user.user_id }}"
+                               onchange="updateSelectedCount()">
+                    </td>
+                    <td data-label="שם">
+                        {{ (user.username or user.user_id) | mask_name }}
+                        {% if user.channel == 'whatsapp' %}
+                        <i class="bi bi-whatsapp text-small" style="color: #25d366;" title="WhatsApp"></i>
+                        {% elif user.channel == 'meta_ig' %}
+                        <i class="bi bi-instagram text-small" style="color: #E1306C;" title="Instagram"></i>
+                        {% elif user.channel == 'meta_msg' %}
+                        <i class="bi bi-messenger text-small" style="color: #0084FF;" title="Messenger"></i>
+                        {% endif %}
+                    </td>
+                    <td data-label="פעילות אחרונה" class="text-small text-muted">
+                        {{ user.last_active_at|relative_time }}
+                    </td>
+                    <td data-label="הודעות">{{ user.message_count }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+
+    {% if total_pages > 1 %}
+    <div style="display: flex; justify-content: center; gap: 0.5rem; margin-top: 0.5rem;">
+        {% if page > 1 %}
+        <button class="btn btn-secondary btn-sm"
+                hx-get="/broadcast/users?page={{ page - 1 }}&inactive_days={{ inactive_days or '' }}&search={{ (search or '')|urlencode }}"
+                hx-target="#users-table-container"
+                hx-swap="outerHTML">
+            <i class="bi bi-chevron-right"></i> הקודם
+        </button>
+        {% endif %}
+        <span class="text-small text-muted" style="align-self: center;">
+            עמוד {{ page }} מתוך {{ total_pages }}
+        </span>
+        {% if page < total_pages %}
+        <button class="btn btn-secondary btn-sm"
+                hx-get="/broadcast/users?page={{ page + 1 }}&inactive_days={{ inactive_days or '' }}&search={{ (search or '')|urlencode }}"
+                hx-target="#users-table-container"
+                hx-swap="outerHTML">
+            הבא <i class="bi bi-chevron-left"></i>
+        </button>
+        {% endif %}
+    </div>
+    {% endif %}
+
+    {% else %}
+    <div class="empty-state" style="padding: 1rem;">
+        <i class="bi bi-people"></i>
+        <p>לא נמצאו לקוחות התואמים את הסינון.</p>
+    </div>
+    {% endif %}
+</div>
