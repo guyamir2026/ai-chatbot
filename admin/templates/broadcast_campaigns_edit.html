@@ -1,0 +1,294 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="page-header animate-fade-in">
+    <h1><i class="bi bi-pencil"></i> {{ campaign.title or "עריכת קמפיין" }}</h1>
+</div>
+
+<!-- stepper -->
+<div class="animate-slide-up stagger-1" style="display: flex; gap: 0.5rem; margin-bottom: var(--space-sm); align-items: center; flex-wrap: wrap;">
+    <a href="/broadcast/campaigns/new" class="stat-pill" style="padding: 0.5rem 1rem; background: var(--bg-secondary); border-radius: var(--radius); text-decoration: none; color: var(--text-primary);">
+        <strong>1.</strong> בחירת תבנית
+    </a>
+    <i class="bi bi-chevron-left" style="color: var(--text-muted);"></i>
+    <div class="stat-pill" style="padding: 0.5rem 1rem; background: var(--primary); color: white; border-radius: var(--radius);">
+        <strong>2.</strong> מיפוי + קהל
+    </div>
+    <i class="bi bi-chevron-left" style="color: var(--text-muted);"></i>
+    <div class="stat-pill" style="padding: 0.5rem 1rem; background: var(--bg-secondary); border-radius: var(--radius); color: var(--text-muted);">
+        3. תזמון ושליחה
+    </div>
+</div>
+
+{% set _category_labels = {'MARKETING': 'שיווק', 'UTILITY': 'שירות', 'AUTHENTICATION': 'אימות'} %}
+
+<!-- מידע על התבנית -->
+<div class="card animate-slide-up stagger-2" style="margin-bottom: var(--space-sm);">
+    <div class="card-body" style="padding: var(--space-sm);">
+        <div style="display: flex; gap: var(--space-sm); flex-wrap: wrap;">
+            <div>
+                <span class="text-small text-muted">תבנית:</span>
+                <code>{{ template.friendly_name }}</code>
+            </div>
+            <div>
+                <span class="text-small text-muted">קטגוריה:</span>
+                {{ _category_labels.get(template.category, template.category) }}
+            </div>
+            <div>
+                <span class="text-small text-muted">סטטוס אישור:</span>
+                {% if template.approval_status == "approved" %}
+                <span class="badge badge-success">אושרה</span>
+                {% else %}
+                <span class="badge badge-warning">{{ template.approval_status }}</span>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- form אחד שעוטף את כל השדות: variables + audience -->
+<form method="POST" action="/broadcast/campaigns/{{ campaign.id }}" id="mapping-form">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+
+    <!-- שורת כותרת פנימית -->
+    <div class="card animate-slide-up stagger-3" style="margin-bottom: var(--space-sm);">
+        <div class="card-body">
+            <div class="form-group" style="margin-bottom: 0;">
+                <label class="form-label" for="title"><strong>כותרת פנימית:</strong></label>
+                {# הכותרת אינה משפיעה על ה-preview, לכן אין hx-trigger כאן —
+                   זה מונע רענון מיותר של פאנל ה-preview ומפחית הבהוב. #}
+                <input type="text" name="title" id="title" class="form-control"
+                       value="{{ campaign.title or '' }}">
+                <div class="text-small text-muted">רק לצרכי ניהול; הכותרת לא נשלחת ללקוח.</div>
+            </div>
+        </div>
+    </div>
+
+    <!-- wizard: variables + preview side by side -->
+    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-sm);" class="animate-slide-up stagger-3 wizard-grid">
+        <!-- ערכי משתנים -->
+        <div class="card">
+            <div class="card-header">
+                <span><i class="bi bi-input-cursor"></i> ערכי משתנים</span>
+            </div>
+            <div class="card-body">
+                {% if template.variables %}
+                <div style="margin-bottom: var(--space-sm);">
+                    <div class="text-small text-muted" style="line-height: 1.7;">
+                        {{ template.variables|length }} משתנים נדרשים.
+                        ניתן להזין ערכים קבועים או להשתמש בשדות דינמיים של הלקוח:
+                        <br>
+                        <code>{{ "{{user:username}}" }}</code> — שם הלקוח,
+                        <code>{{ "{{user:phone}}" }}</code> — מספר טלפון (0XXXXXXXXX),
+                        <code>{{ "{{user:user_id}}" }}</code> — מזהה מערכת.
+                        <br>
+                        <strong>דוגמה:</strong> <code>היי {{ "{{user:username}}" }}, תודה!</code> —
+                        יורחב ל-"היי דני, תודה!" לפי שם הלקוח.
+                    </div>
+                </div>
+
+                {% for var in template.variables %}
+                {# מנקים תחילית "{{N}}:" שלעיתים מגיעה מ-Twilio בערך הדוגמה —
+                   גם בשדה ההזנה (placeholder) וגם בטקסט שמתחת. #}
+                {% set _ex = var.example or '' %}
+                {% if _ex.startswith('{{') and '}}:' in _ex %}
+                    {% set _ex = _ex.split('}}:', 1)[1].lstrip() %}
+                {% endif %}
+                <div class="form-group" style="margin-bottom: var(--space-sm);">
+                    <label class="form-label" for="var_{{ var.index }}">
+                        <code>{{ "{{" }}{{ var.index }}{{ "}}" }}</code>
+                    </label>
+                    {# hx-sync="closest form:replace" — בקשה חדשה מבטלת את
+                       הקודמת, כדי שלא ייערמו מספר swaps ברצף (גורם להבהוב). #}
+                    <input type="text"
+                           name="var_{{ var.index }}"
+                           id="var_{{ var.index }}"
+                           class="form-control"
+                           value="{{ campaign.variable_mapping.get(var.index|string, '') or campaign.variable_mapping.get(var.index, '') }}"
+                           placeholder="{{ _ex or ('ערך למשתנה ' + var.index|string) }}"
+                           hx-post="/broadcast/campaigns/{{ campaign.id }}/preview"
+                           hx-trigger="input changed delay:500ms"
+                           hx-include="closest form"
+                           hx-target="#preview-pane"
+                           hx-swap="innerHTML"
+                           hx-sync="closest form:replace">
+                    {% if _ex %}
+                    <div class="text-small text-muted">דוגמה מהתבנית: {{ _ex }}</div>
+                    {% endif %}
+                </div>
+                {% endfor %}
+                {% else %}
+                <div style="padding: var(--space-sm); color: var(--text-muted); text-align: center;">
+                    <i class="bi bi-check-circle"></i> תבנית זו אינה דורשת משתנים.
+                </div>
+                {% endif %}
+            </div>
+        </div>
+
+        <!-- Preview חי -->
+        <div class="card">
+            <div class="card-header">
+                <span><i class="bi bi-eye"></i> תצוגה מקדימה</span>
+            </div>
+            <div class="card-body">
+                {# style="min-height" שומר על גובה קבוע גם בזמן swap, ו-htmx-settling
+                   נותן fade עדין כדי שלא יראה כאילו ה-preview קופץ/מהבהב. #}
+                <div id="preview-pane" style="min-height: 240px;">
+                    {% include "partials/broadcast_campaign_preview.html" %}
+                </div>
+            </div>
+        </div>
+    </div>
+
+    {# CSS למניעת הבהוב — מבטלים את ה-fade-out המוגדר ב-htmx (המקור
+       העיקרי להבהוב), משתמשים ב-fade-in קצר בלבד כדי שהמעבר יהיה חלק. #}
+    <style>
+        #preview-pane.htmx-swapping { opacity: 1 !important; }
+        #preview-pane.htmx-settling { opacity: 1 !important; }
+        #preview-pane > * { transition: opacity 120ms ease-out; }
+    </style>
+
+    <!-- קהל יעד -->
+    <div class="card animate-slide-up stagger-4" style="margin-top: var(--space-sm);">
+        <div class="card-header">
+            <span><i class="bi bi-people"></i> קהל יעד</span>
+        </div>
+        <div class="card-body">
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-sm);" class="audience-grid">
+                <div>
+                    <div class="form-group" style="margin-bottom: var(--space-sm);">
+                        <label class="form-label"><strong>מי מקבל?</strong></label>
+                        <div style="display: flex; flex-direction: column; gap: 0.5rem; margin-top: 0.5rem;">
+                            <label style="display: flex; gap: 0.5rem; cursor: pointer; padding: 0.75rem; border: 1px solid var(--border); border-radius: var(--radius);">
+                                <input type="radio"
+                                       name="audience_type" value="opted_in_only"
+                                       {% if audience_type == "opted_in_only" %}checked{% endif %}
+                                       hx-post="/broadcast/campaigns/{{ campaign.id }}/audience"
+                                       hx-trigger="change"
+                                       hx-include="closest form"
+                                       hx-target="#audience-counts"
+                                       hx-swap="innerHTML">
+                                <div>
+                                    <strong>רק opted-in</strong>
+                                    <div class="text-small text-muted">
+                                        משתמשים שנתנו הסכמה מפורשת לקבלת הודעות שיווקיות.
+                                        <strong>חובה</strong> עבור תבניות שיווק (תיקון 40).
+                                    </div>
+                                </div>
+                            </label>
+                            <label style="display: flex; gap: 0.5rem; {% if template.category == 'MARKETING' %}opacity: 0.5; cursor: not-allowed;{% else %}cursor: pointer;{% endif %} padding: 0.75rem; border: 1px solid var(--border); border-radius: var(--radius);">
+                                <input type="radio"
+                                       name="audience_type" value="all"
+                                       {% if audience_type == "all" %}checked{% endif %}
+                                       {% if template.category == "MARKETING" %}disabled{% endif %}
+                                       hx-post="/broadcast/campaigns/{{ campaign.id }}/audience"
+                                       hx-trigger="change"
+                                       hx-include="closest form"
+                                       hx-target="#audience-counts"
+                                       hx-swap="innerHTML">
+                                <div>
+                                    <strong>כל משתמשי WhatsApp</strong>
+                                    <div class="text-small text-muted">
+                                        {% if template.category == "MARKETING" %}
+                                        לא זמין לשיווק. בחרו תבנית שירות/אימות להרחבת הקהל.
+                                        {% else %}
+                                        עבור שירות/אימות. מי שביקש הסרה לא ייכלל.
+                                        {% endif %}
+                                    </div>
+                                </div>
+                            </label>
+                        </div>
+                    </div>
+
+                    <div class="form-group">
+                        <label class="form-label" for="inactive_days">
+                            <strong>פעילים ב-X ימים אחרונים בלבד:</strong>
+                        </label>
+                        <input type="number"
+                               name="inactive_days" id="inactive_days"
+                               class="form-control"
+                               value="{{ inactive_days or '' }}"
+                               min="0" max="3650"
+                               placeholder="ללא הגבלה"
+                               hx-post="/broadcast/campaigns/{{ campaign.id }}/audience"
+                               hx-trigger="input changed delay:300ms"
+                               hx-include="closest form"
+                               hx-target="#audience-counts"
+                               hx-swap="innerHTML">
+                        <div class="text-small text-muted">השאירו ריק לשליחה לכולם (ללא סינון פעילות).</div>
+                    </div>
+                </div>
+
+                <!-- מוני קהל חיים -->
+                <div>
+                    <div style="background: var(--bg-secondary); padding: var(--space-sm); border-radius: var(--radius);">
+                        <div id="audience-counts">
+                            {% include "partials/broadcast_campaign_audience.html" %}
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- כפתורי שמירה — בסוף הטופס, אחרי כל השדות -->
+    <div style="display: flex; gap: 0.5rem; margin-top: var(--space-sm);">
+        <button type="submit" class="btn btn-primary">
+            <i class="bi bi-save"></i> שמור טיוטה
+        </button>
+        <a href="/broadcast/campaigns" class="btn btn-secondary">
+            חזרה לרשימה
+        </a>
+    </div>
+</form>
+
+<style>
+@media (max-width: 900px) {
+    .wizard-grid,
+    .audience-grid {
+        grid-template-columns: 1fr !important;
+    }
+}
+/* סגנון בועה בסיסי דמוי WhatsApp */
+.wa-bubble {
+    background: #DCF8C6;
+    padding: 0.75rem 1rem;
+    border-radius: 0.75rem;
+    max-width: 100%;
+    white-space: pre-wrap;
+    word-wrap: break-word;
+    direction: rtl;
+    line-height: 1.5;
+    color: #111;
+}
+.wa-bubble-container {
+    background: #ECE5DD;
+    padding: var(--space-sm);
+    border-radius: var(--radius);
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+}
+.wa-footer {
+    font-size: 0.85em;
+    color: #667781;
+    font-style: italic;
+    margin-top: 0.35rem;
+}
+.wa-buttons {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+    margin-top: 0.5rem;
+}
+.wa-button {
+    background: white;
+    border: 1px solid #DCF8C6;
+    border-radius: 0.5rem;
+    padding: 0.5rem;
+    text-align: center;
+    color: #1A7FBF;
+    font-weight: 500;
+}
+</style>
+{% endblock %}
