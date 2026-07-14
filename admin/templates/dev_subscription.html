@@ -1,0 +1,282 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="csrf-token" content="{{ csrf_token() }}">
+    <title>איזור מפתח — חבילה ופיצ'רים</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Rubik:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.0/font/bootstrap-icons.css" rel="stylesheet" crossorigin="anonymous">
+    <link href="{{ url_for('static', filename='css/style.css') }}" rel="stylesheet">
+    <style>
+        /* כפיית theme בהיר ייעודי לאיזור המפתח — לא מושפע מ-localStorage
+           של ערכת הצבעים של בעל העסק. */
+        html, body {
+            background: #f3f0fb !important;
+            color: #1a1a1a !important;
+        }
+        .dev-page { max-width: 980px; margin: 2rem auto; padding: 0 1rem; color: #1a1a1a; }
+        .dev-banner {
+            background: linear-gradient(135deg, #6f42c1 0%, #4b2a86 100%);
+            color: #fff; padding: 1rem 1.5rem; border-radius: 12px;
+            margin-bottom: 1.5rem; display: flex; justify-content: space-between;
+            align-items: center; gap: 1rem; flex-wrap: wrap;
+        }
+        .dev-banner h1 { margin: 0; font-size: 1.4rem; color: #fff; }
+        .dev-banner .subtitle { opacity: 0.85; font-size: 0.9rem; color: #fff; }
+        .dev-card {
+            background: #ffffff !important;
+            color: #1a1a1a !important;
+            padding: 1.5rem; border-radius: 12px;
+            margin-bottom: 1.5rem;
+            box-shadow: 0 2px 12px rgba(75, 42, 134, 0.08);
+            border: 1px solid #e6e1f2;
+        }
+        .dev-card h2 { margin-top: 0; font-size: 1.15rem; color: #1a1a1a; }
+        /* color על .dev-card עם !important מבטיח שצאצאים יורשים את הצבע
+           הכהה. אין צורך בכלל גורף לכל span/p/div — כלל כזה היה דורס
+           classes סמנטיים כמו .grace-active/.grace-warning בגלל
+           specificity גבוה יותר. */
+        .dev-card code { color: #4b2a86; background: #f3f0fb; padding: 0.1rem 0.3rem; border-radius: 4px; }
+        .plan-pills { display: flex; gap: 0.5rem; flex-wrap: wrap; margin: 1rem 0; }
+        .plan-pill {
+            padding: 0.4rem 0.9rem; border-radius: 999px; font-size: 0.9rem;
+            border: 2px solid #d0d0d0; background: transparent; cursor: pointer;
+            color: #1a1a1a;
+        }
+        .plan-pill.active {
+            background: #6f42c1; color: #fff; border-color: #6f42c1; font-weight: 600;
+        }
+        .feature-row {
+            display: grid; grid-template-columns: 1.5fr 1fr 1fr 1.4fr;
+            gap: 1rem; padding: 0.75rem 0; border-bottom: 1px solid #eee;
+            align-items: center;
+        }
+        .feature-row .name { font-weight: 600; }
+        .feature-row .badge-active { color: #28a745; font-weight: 600; }
+        .feature-row .badge-inactive { color: #6c757d; }
+        .feature-row .has-override { color: #fd7e14; font-size: 0.85rem; }
+        .feature-controls { display: flex; gap: 0.4rem; }
+        .feature-controls form { margin: 0; }
+        .feature-controls button { padding: 0.3rem 0.6rem; font-size: 0.8rem; }
+        .feature-controls input.form-input {
+            background: #fff; color: #1a1a1a; border: 1px solid #ccc;
+            padding: 0.3rem 0.5rem; border-radius: 4px;
+        }
+        .history-table { width: 100%; border-collapse: collapse; font-size: 0.9rem; color: #1a1a1a; }
+        .history-table th, .history-table td { padding: 0.5rem; border-bottom: 1px solid #eee; text-align: right; color: #1a1a1a; }
+        .history-table th { background: #f8f5fc; font-weight: 600; }
+        /* specificity גבוה מספיק לעקוף inheritance מ-.dev-card */
+        .dev-card .grace-active { color: #28a745; font-weight: 600; }
+        .dev-card .grace-warning { color: #fd7e14; font-weight: 600; }
+        .dev-card .grace-expired { color: #6c757d; font-weight: 500; }
+        details summary { cursor: pointer; font-weight: 500; color: #1a1a1a; }
+        pre.json-block { background: #f8f5fc; color: #1a1a1a; padding: 0.75rem; border-radius: 6px; font-size: 0.85rem; overflow-x: auto; border: 1px solid #e6e1f2; }
+        /* ה-form group בסגנון של הפאנל אבל עם צבעים מובטחים */
+        .dev-card .form-input {
+            background: #fff; color: #1a1a1a; border: 1px solid #ccc;
+            padding: 0.5rem 0.75rem; border-radius: 6px; width: 100%;
+        }
+        .dev-card .form-label { color: #1a1a1a; display: block; margin-bottom: 0.3rem; font-weight: 500; }
+        .dev-card .alert { color: #1a1a1a; }
+        /* כפתורים — מבטיח קונטרסט */
+        .dev-card .btn-primary { background: #6f42c1; color: #fff; border: none; }
+        .dev-card .btn-secondary { background: #6c757d; color: #fff; border: none; }
+    </style>
+</head>
+<body>
+    <div class="dev-page">
+        <div class="dev-banner">
+            <div>
+                <h1><i class="bi bi-shield-lock"></i> איזור מפתח</h1>
+                <div class="subtitle">ניהול חבילה ופיצ'רים — לקוח SaaS</div>
+            </div>
+            <form method="POST" action="{{ url_for('dev_logout') }}" style="margin: 0;">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <button type="submit" class="btn btn-secondary">
+                    <i class="bi bi-box-arrow-right"></i> התנתק
+                </button>
+            </form>
+        </div>
+
+        {% with messages = get_flashed_messages(with_categories=true) %}
+        {% if messages %}
+            {% for category, message in messages %}
+            <div class="alert alert-{{ category }}" style="margin-bottom: 1rem;">{{ message }}</div>
+            {% endfor %}
+        {% endif %}
+        {% endwith %}
+
+        <!-- ── סטטוס נוכחי ─────────────────────────────────────────── -->
+        <div class="dev-card">
+            <h2><i class="bi bi-info-circle"></i> סטטוס נוכחי</h2>
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;">
+                <div>
+                    <div><strong>חבילה פעילה:</strong>
+                        <span class="plan-pill active">{{ plan_definition.display_name }}</span>
+                    </div>
+                    <div style="margin-top: 0.5rem;"><strong>ערוץ צפוי:</strong> {{ plan_definition.channel }}</div>
+                    <div><strong>תחילת חבילה:</strong> {{ subscription.plan_started_at | il_datetime if subscription.plan_started_at else "—" }}</div>
+                </div>
+                <div>
+                    <div><strong>ימי חסד:</strong> {{ subscription.grace_period_days }}</div>
+                    <div>
+                        <strong>סוף חסד:</strong>
+                        {% if grace_ends_at %}
+                            {{ grace_ends_at.strftime('%Y-%m-%d %H:%M UTC') }}
+                        {% else %}—{% endif %}
+                    </div>
+                    <div>
+                        {% if is_in_grace_period %}
+                            <span class="grace-active"><i class="bi bi-check-circle"></i>
+                                בחסד — נותרו {{ days_remaining_in_grace }} ימים</span>
+                        {% elif days_remaining_in_grace == 0 and grace_ends_at %}
+                            <span class="grace-expired"><i class="bi bi-clock-history"></i>
+                                החסד הסתיים</span>
+                        {% else %}
+                            <span class="grace-expired">—</span>
+                        {% endif %}
+                    </div>
+                </div>
+            </div>
+            {% if subscription.notes %}
+            <div style="margin-top: 0.75rem;"><strong>הערות פנימיות:</strong> {{ subscription.notes }}</div>
+            {% endif %}
+        </div>
+
+        <!-- ── שינוי חבילה ──────────────────────────────────────────── -->
+        <div class="dev-card">
+            <h2><i class="bi bi-arrow-repeat"></i> שינוי חבילה</h2>
+            <p style="font-size: 0.9rem; opacity: 0.8;">
+                שדרוג מאפס את <code>plan_started_at</code> (ותקופת חסד חדשה).
+                Downgrade שומר על תאריך התחלה המקורי, אבל מעדכן את <code>grace_period_days</code>
+                לפי החבילה החדשה.
+            </p>
+            <form method="POST" action="{{ url_for('dev_set_plan') }}">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <div class="plan-pills">
+                    {% for plan_key in valid_plans %}
+                    <label class="plan-pill {{ 'active' if plan_key == subscription.plan else '' }}">
+                        <input type="radio" name="plan" value="{{ plan_key }}"
+                               {{ 'checked' if plan_key == subscription.plan else '' }}
+                               style="margin-left: 0.4rem;">
+                        {{ plans[plan_key].display_name }}
+                        <span style="opacity: 0.7; font-size: 0.8rem;">({{ plans[plan_key].channel }})</span>
+                    </label>
+                    {% endfor %}
+                </div>
+                <div class="form-group">
+                    <label for="reason" class="form-label">סיבת שינוי (תיעוד פנימי, לא PII)</label>
+                    <input type="text" class="form-input" id="reason" name="reason"
+                           placeholder="לדוגמה: שדרוג ידני אחרי תשלום שנתי" maxlength="500">
+                </div>
+                <button type="submit" class="btn btn-primary">
+                    <i class="bi bi-check-lg"></i> החל חבילה
+                </button>
+            </form>
+        </div>
+
+        <!-- ── מטריצת פיצ'רים ──────────────────────────────────────── -->
+        <div class="dev-card">
+            <h2><i class="bi bi-toggles"></i> פיצ'רים</h2>
+            <p style="font-size: 0.9rem; opacity: 0.8;">
+                ערך אפקטיבי = override ידני אם קיים, אחרת ברירת המחדל מהחבילה.
+                ערכים מותרים ב-override: <code>true</code>, <code>false</code>, מספר שלם, או <code>null</code>.
+            </p>
+            <div class="feature-row" style="font-weight: 600; background: #f8f9fa;">
+                <div>פיצ'ר</div>
+                <div>ברירת מחדל מהחבילה</div>
+                <div>ערך אפקטיבי</div>
+                <div>פעולות</div>
+            </div>
+            {% for row in feature_rows %}
+            <div class="feature-row">
+                <div>
+                    <div class="name">{{ row.name }}</div>
+                    {% if row.has_override %}
+                    <div class="has-override">
+                        <i class="bi bi-pencil-square"></i> override ידני פעיל
+                    </div>
+                    {% endif %}
+                </div>
+                <div>
+                    {% if row.default_value is none %}
+                        <code>null</code> (ללא הגבלה)
+                    {% else %}
+                        <code>{{ row.default_value }}</code>
+                    {% endif %}
+                </div>
+                <div>
+                    {% if row.is_active %}
+                        <span class="badge-active">✓ פעיל</span>
+                    {% else %}
+                        <span class="badge-inactive">✗ כבוי</span>
+                    {% endif %}
+                    {% if row.current_value is not none and row.current_value is not sameas true and row.current_value is not sameas false %}
+                        <small>= {{ row.current_value }}</small>
+                    {% endif %}
+                </div>
+                <div class="feature-controls">
+                    <form method="POST" action="{{ url_for('dev_override_feature') }}" style="display: flex; gap: 0.3rem;">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                        <input type="hidden" name="feature" value="{{ row.name }}">
+                        <input type="text" name="value" placeholder="true / false / 5 / null"
+                               class="form-input" style="width: 130px; font-size: 0.85rem;" required>
+                        <button type="submit" class="btn btn-secondary">דרוס</button>
+                    </form>
+                    {% if row.has_override %}
+                    <form method="POST" action="{{ url_for('dev_reset_feature', feature_name=row.name) }}">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                        <button type="submit" class="btn btn-secondary"
+                                title="חזרה לברירת המחדל של החבילה">
+                            <i class="bi bi-arrow-counterclockwise"></i>
+                        </button>
+                    </form>
+                    {% endif %}
+                </div>
+            </div>
+            {% endfor %}
+
+            <details style="margin-top: 1rem;">
+                <summary>JSON של overrides הנוכחי</summary>
+                <pre class="json-block">{{ overrides_json }}</pre>
+            </details>
+        </div>
+
+        <!-- ── היסטוריה ─────────────────────────────────────────────── -->
+        <div class="dev-card">
+            <h2><i class="bi bi-clock-history"></i> היסטוריית שינויים</h2>
+            {% if history %}
+            <table class="history-table">
+                <thead>
+                    <tr>
+                        <th>מתי</th>
+                        <th>חבילה לפני</th>
+                        <th>חבילה אחרי</th>
+                        <th>סיבה</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for h in history %}
+                    <tr>
+                        <td>{{ h.changed_at | il_datetime }}</td>
+                        <td><code>{{ h.previous_plan or "—" }}</code></td>
+                        <td><code>{{ h.new_plan }}</code></td>
+                        <td>{{ h.reason or "—" }}</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+            {% else %}
+            <p style="opacity: 0.7;">אין שינויי חבילה רשומים עדיין.</p>
+            {% endif %}
+        </div>
+
+        <p style="text-align: center; opacity: 0.6; font-size: 0.85rem; margin-top: 2rem;">
+            כל שינוי כאן נרשם ב-<code>plan_history</code> — אל תכתוב שמות לקוחות או PII בשדה הסיבה.
+        </p>
+    </div>
+</body>
+</html>
