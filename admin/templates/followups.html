@@ -1,0 +1,130 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="page-header animate-fade-in">
+    <h1><i class="bi bi-arrow-repeat"></i> מעקב לידים (Follow-up)</h1>
+</div>
+
+<!-- סטטוס הפיצ'ר -->
+<div class="card animate-slide-up" style="margin-bottom: var(--space-sm);">
+    <div class="card-body" style="line-height: 1.8;">
+        <p style="margin: 0 0 0.5rem 0;">
+            {% if followup_enabled %}
+            <span class="badge badge-success">פעיל</span>
+            {% else %}
+            <span class="badge badge-warning">כבוי</span>
+            {% endif %}
+            <i class="bi bi-info-circle" style="color: var(--brand-blue); margin-right: 0.25rem;"></i>
+            <strong>איך זה עובד?</strong>
+        </p>
+        <ul style="margin: 0; padding-right: var(--space-md);">
+            <li>לקוח ששואל על <b>מחיר, זמינות או קביעת תור</b> אבל לא משלים הזמנה — מזוהה כ<b>ליד חם</b>.</li>
+            <li>אחרי <b>~24 שעות</b> המערכת שולחת <b>הודעת follow-up עדינה</b> עם תבנית קבועה.</li>
+            <li>חוקי בטיחות קשיחים מונעים ספאם: <b>מקסימום הודעה אחת</b>, לא שולחים לחסומים, לא שולחים למי שקבע תור.</li>
+        </ul>
+        {% if not followup_enabled %}
+        <p class="text-muted text-small" style="margin-top: 0.5rem;">
+            להפעלה: הוסיפו <code>FOLLOWUP_ENABLED=true</code> למשתני הסביבה.
+        </p>
+        {% endif %}
+    </div>
+</div>
+
+<!-- KPIs -->
+<div class="stats-grid animate-slide-up" style="margin-bottom: var(--space-sm);">
+    <div class="stat-card">
+        <div class="stat-value">{{ stats.total }}</div>
+        <div class="stat-label">סה"כ לידים</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-value">{{ stats.sent }}</div>
+        <div class="stat-label">נשלחו</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-value">{{ stats.replied }}</div>
+        <div class="stat-label">הגיבו</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-value">{{ stats.converted }}</div>
+        <div class="stat-label">קבעו תור</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-value">{{ stats.reply_rate }}%</div>
+        <div class="stat-label">שיעור תגובה</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-value">{{ stats.conversion_rate }}%</div>
+        <div class="stat-label">שיעור המרה</div>
+    </div>
+</div>
+
+<!-- טבלת follow-ups -->
+<div class="card animate-slide-up">
+    <div class="card-header">
+        <span><i class="bi bi-list-ul"></i> היסטוריית follow-ups</span>
+    </div>
+    <div class="card-body">
+        {% if followups %}
+        <div class="table-responsive">
+            <table class="table">
+                <thead>
+                    <tr>
+                        <th>#</th>
+                        <th>לקוח</th>
+                        <th>שירות</th>
+                        <th>טמפ'</th>
+                        <th>סטטוס</th>
+                        <th>תבנית</th>
+                        <th>נוצר</th>
+                        <th>נשלח</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for f in followups %}
+                    <tr>
+                        <td>{{ f.id }}</td>
+                        <td>{{ (f.username or f.user_id)|mask_name|truncate(12, True) }}</td>
+                        <td>{{ f.service_of_interest or '—' }}</td>
+                        <td>
+                            {% if f.lead_temperature == 'hot' %}
+                                <span class="badge badge-danger">🔥 חם</span>
+                            {% elif f.lead_temperature == 'warm' %}
+                                <span class="badge badge-warning">🌤 חמים</span>
+                            {% else %}
+                                <span class="badge badge-secondary">❄ קר</span>
+                            {% endif %}
+                        </td>
+                        <td>
+                            {% set status_class = {
+                                'pending': 'badge-info',
+                                'approved': 'badge-primary',
+                                'sent': 'badge-success',
+                                'replied': 'badge-success',
+                                'converted': 'badge-success',
+                                'expired': 'badge-secondary',
+                                'cancelled': 'badge-danger',
+                            } %}
+                            <span class="badge {{ status_class.get(f.status, 'badge-secondary') }}">
+                                {{ status_labels.get(f.status, f.status) }}
+                            </span>
+                            {% if f.stop_reason %}
+                                <small class="text-muted d-block">{{ f.stop_reason }}</small>
+                            {% endif %}
+                        </td>
+                        <td>{{ f.template_key or '—' }}</td>
+                        <td>{{ f.created_at|il_datetime if f.created_at else '—' }}</td>
+                        <td>{{ f.followup_sent_at|il_datetime if f.followup_sent_at else '—' }}</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% else %}
+        <div class="text-center text-muted" style="padding: var(--space-lg);">
+            <i class="bi bi-inbox" style="font-size: 2rem;"></i>
+            <p>אין עדיין follow-ups. כשהפיצ'ר פעיל, לידים שלא קבעו תור יופיעו כאן.</p>
+        </div>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}
