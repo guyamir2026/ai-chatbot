@@ -1,0 +1,185 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="page-header animate-fade-in">
+    <h1><i class="bi bi-bug"></i> דיווח למפתח</h1>
+</div>
+
+<!-- טופס דיווח חדש -->
+<div class="card animate-slide-up" style="margin-bottom: var(--space-md);">
+    <div class="card-header">
+        <h2 class="card-title"><i class="bi bi-pencil-square"></i> דיווח חדש</h2>
+    </div>
+    <div class="card-body">
+        {% if not dev_configured %}
+        <div class="alert alert-warning" style="margin-bottom: var(--space-sm);">
+            <i class="bi bi-exclamation-triangle"></i>
+            שליחה אוטומטית לא מוגדרת. הדיווח יישמר במערכת אך לא ישלח למפתח.
+            <br><small>להגדרה: הוסיפו ב-.env טלגרם (DEVELOPER_BOT_TOKEN + DEVELOPER_CHAT_ID) ו/או מייל (DEVELOPER_EMAIL + SMTP_PASSWORD)</small>
+        </div>
+        {% endif %}
+
+        <form method="POST" enctype="multipart/form-data" action="/developer-report">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+
+            <div class="form-group" style="margin-bottom: var(--space-sm);">
+                <label for="description" class="form-label">תיאור הבעיה</label>
+                <textarea
+                    id="description"
+                    name="description"
+                    class="form-control"
+                    rows="4"
+                    placeholder="תארו את הבעיה שמצאתם... מה קרה? מה ציפיתם שיקרה?"
+                    required
+                    style="resize: vertical; min-height: 100px;"
+                ></textarea>
+                {# שכבה 1 (תיקון 13) — UI hint: בעל העסק עלול לכתוב PII של
+                   לקוחותיו בתיאור באג. להזכיר בצורה ברורה לא לעשות זאת. #}
+                <small class="form-text text-muted" style="display:block; margin-top:6px; color:#b8860b;">
+                    🔒 אנא <b>אל תכלול/י</b> מספרי טלפון, שמות לקוחות או תוכן שיחה בתיאור.
+                    תאר/י את הבעיה במונחים תפעוליים (למשל: "לחיצה על כפתור X לא עובדת").
+                </small>
+            </div>
+
+            <div class="form-group" style="margin-bottom: var(--space-sm);">
+                <label for="screenshots" class="form-label">צילומי מסך (עד 3, אופציונלי)</label>
+                <input
+                    type="file"
+                    id="screenshots"
+                    name="screenshots"
+                    class="form-control"
+                    accept="image/png,image/jpeg,image/gif,image/webp"
+                    multiple
+                >
+                <small class="text-muted">PNG, JPG, GIF, WebP — עד 10MB לתמונה</small>
+            </div>
+
+            <!-- תצוגה מקדימה של תמונות -->
+            <div id="preview-container" style="display:none; margin-bottom: var(--space-sm);">
+                <div id="preview-images" style="display:flex; gap:0.5rem; flex-wrap:wrap;"></div>
+            </div>
+
+            <button type="submit" id="submit-btn" class="btn btn-primary">
+                <i class="bi bi-send" id="submit-icon"></i>
+                <span id="submit-text">שלח דיווח</span>
+            </button>
+        </form>
+    </div>
+</div>
+
+<!-- היסטוריית דיווחים -->
+<div class="card animate-slide-up">
+    <div class="card-header">
+        <h2 class="card-title"><i class="bi bi-clock-history"></i> דיווחים קודמים</h2>
+    </div>
+    <div class="card-body" style="padding: 0;">
+        {% if reports %}
+        <div class="table-wrapper">
+            <table>
+                <thead>
+                    <tr>
+                        <th>#</th>
+                        <th>תיאור</th>
+                        <th>תמונות</th>
+                        <th>סטטוס</th>
+                        <th>תאריך</th>
+                        <th>פעולות</th>
+                    </tr>
+                </thead>
+                <tbody id="reports-table-body">
+                    {% for r in reports %}
+                    {% include "partials/developer_report_row.html" %}
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% else %}
+        <div class="empty-state">
+            <i class="bi bi-check-circle"></i>
+            <p>אין דיווחים עדיין. הכל עובד מעולה!</p>
+        </div>
+        {% endif %}
+    </div>
+</div>
+
+<script>
+/* שכבה 2 (תיקון 13) — אזהרה client-side לפני שליחה אם זוהה דפוס
+   טלפון/מייל. לא חוסמת — מבקשת אישור. הסניטיזציה הסופית קורית
+   בשרת (utils/pii_sanitizer.py), אבל אזהרה מוקדמת מקטינה false-
+   negatives של "לא ידעתי". */
+var _piiPatterns = {
+    phone: /(\+972[\s-]?\d{1,2}[\s-]?\d{3}[\s-]?\d{4}|\b05\d[\s-]?\d{3}[\s-]?\d{4}\b|\b05\d{8}\b)/,
+    email: /\b[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}\b/
+};
+function _detectPiiHints(text) {
+    var found = [];
+    if (_piiPatterns.phone.test(text)) found.push('מספר טלפון');
+    if (_piiPatterns.email.test(text)) found.push('כתובת מייל');
+    return found;
+}
+
+/* חיווי טעינה בשליחה — מונע לחיצה כפולה */
+document.querySelector('form').addEventListener('submit', function(e) {
+    /* בדיקת PII לפני שליחה */
+    var description = document.getElementById('description').value || '';
+    var hints = _detectPiiHints(description);
+    if (hints.length > 0) {
+        var msg = 'זוהה לכאורה ' + hints.join(' ו-') + ' בתיאור.\n\n' +
+                  'הדיווח נשלח למפתח חיצוני. האם להמשיך?\n\n' +
+                  '(המערכת תסנן את הפרטים אוטומטית בשרת, אבל מומלץ לתקן בעצמך לפני השליחה.)';
+        if (!window.confirm(msg)) {
+            e.preventDefault();
+            return false;
+        }
+    }
+
+    var btn = document.getElementById('submit-btn');
+    var icon = document.getElementById('submit-icon');
+    var text = document.getElementById('submit-text');
+    btn.disabled = true;
+    btn.style.opacity = '0.7';
+    icon.className = 'bi bi-hourglass-split';
+    text.textContent = 'שולח';
+    /* אנימציית נקודות */
+    var dots = 0;
+    var interval = setInterval(function() {
+        dots = (dots + 1) % 4;
+        text.textContent = 'שולח' + '.'.repeat(dots);
+    }, 500);
+    /* ניקוי ה-interval כשהדף נטען מחדש (אחרי redirect) */
+    btn._dotsInterval = interval;
+});
+
+/* תצוגה מקדימה של תמונות שנבחרו */
+document.getElementById('screenshots').addEventListener('change', function(e) {
+    const container = document.getElementById('preview-container');
+    const images = document.getElementById('preview-images');
+    images.innerHTML = '';
+
+    if (this.files.length === 0) {
+        container.style.display = 'none';
+        return;
+    }
+
+    /* הגבלה ל-3 קבצים */
+    if (this.files.length > 3) {
+        const dt = new DataTransfer();
+        for (let i = 0; i < 3; i++) dt.items.add(this.files[i]);
+        this.files = dt.files;
+    }
+
+    container.style.display = 'block';
+    Array.from(this.files).forEach(function(file) {
+        if (!file.type.startsWith('image/')) return;
+        const reader = new FileReader();
+        reader.onload = function(ev) {
+            const img = document.createElement('img');
+            img.src = ev.target.result;
+            img.style.cssText = 'max-width:120px;max-height:120px;border-radius:8px;border:2px solid var(--border-color,#333);object-fit:cover;';
+            images.appendChild(img);
+        };
+        reader.readAsDataURL(file);
+    });
+});
+</script>
+{% endblock %}
