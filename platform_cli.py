@@ -6,6 +6,7 @@ Platform CLI — ניהול tenants מהטרמינל (multi-tenant שלב 2).
     python -m platform_cli list-tenants
     python -m platform_cli suspend salon-a
     python -m platform_cli activate salon-a
+    python -m platform_cli delete-tenant salon-a          # מחיקה מלאה (אישור בהקלדת ה-slug)
     python -m platform_cli gen-key
     python -m platform_cli set-route twilio_number +14155551234 salon-a
     python -m platform_cli delete-route twilio_number +14155551234
@@ -60,6 +61,49 @@ def _cmd_list_tenants(args) -> int:
 def _cmd_set_status(args, status: str) -> int:
     cp.set_tenant_status(args.slug, status)
     print(f"✓ {args.slug} → {status}")
+    return 0
+
+
+def _cmd_delete_tenant(args) -> int:
+    """מחיקה מלאה ובלתי-הפיכה של tenant: control plane (cascade) + קבצים.
+
+    אישור: חובה להקליד את ה-slug (או --yes לדילוג, לסקריפטים). מבטל את
+    ה-webhook מול טלגרם *לפני* המחיקה — בעוד הטוקן קיים (אחרי מחיקתו אין
+    דרך לבטל). ריצה מתהליך נפרד: reset של caches בזיכרון-השרת אינו רלוונטי
+    כאן (הזיכרון של השרת החי אינו נגיש) — ה-status cache שם יתיישן תוך ~30ש'.
+    """
+    slug = args.slug
+    if cp.get_tenant(slug) is None:
+        print(f"tenant לא רשום: {slug}")
+        return 1
+
+    if not args.yes:
+        typed = input(
+            f"מחיקה בלתי-הפיכה של '{slug}' וכל נתוניו. הקלד את המזהה לאישור: "
+        )
+        if typed.strip() != slug:
+            print("המזהה לא תאם — בוטל.")
+            return 1
+
+    # ביטול ה-webhook מול טלגרם לפני מחיקת הטוקן (בעוד הוא קיים). best-effort.
+    try:
+        import asyncio
+        from bot_registry import remove_telegram_webhook
+
+        if cp.get_tenant_secret(slug, "telegram_bot_token"):
+            asyncio.run(remove_telegram_webhook(slug))
+            print("✓ webhook טלגרם בוטל")
+    except Exception as exc:
+        logger.error("ביטול webhook נכשל (%s) — ממשיכים במחיקה", exc)
+
+    result = cp.delete_tenant(slug)
+    print(f"✓ tenant '{slug}' נמחק")
+    print(f"  cascade: {result['cascade']}")
+    if result.get("backup_ok"):
+        print(f"  גיבוי אחרון: {result['backup_stamp']}")
+    elif result.get("backup_ok") is False:
+        print("  ⚠ הגיבוי האחרון נכשל (ראה לוג)")
+    print(f"  קבצים נמחקו: {result['files_removed']}")
     return 0
 
 
@@ -247,6 +291,16 @@ def main(argv: list[str] | None = None) -> int:
     p = sub.add_parser("activate", help="החזרת tenant לפעילות")
     p.add_argument("slug")
     p.set_defaults(func=lambda a: _cmd_set_status(a, "active"))
+
+    p = sub.add_parser(
+        "delete-tenant",
+        help="מחיקה מלאה ובלתי-הפיכה של tenant (control plane + קבצי data plane)",
+    )
+    p.add_argument("slug")
+    p.add_argument(
+        "--yes", action="store_true", help="דילוג על אישור אינטראקטיבי (לסקריפטים)"
+    )
+    p.set_defaults(func=_cmd_delete_tenant)
 
     p = sub.add_parser("gen-key", help="מפתח ראוטינג אקראי (webhook/widget)")
     p.set_defaults(func=_cmd_gen_key)

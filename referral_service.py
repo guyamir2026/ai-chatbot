@@ -29,7 +29,7 @@ def build_referral_link(code: str, channel: str = "telegram") -> str:
             return f"https://wa.me/{digits}?text={quote(code)}"
         return code
     if TELEGRAM_BOT_USERNAME:
-        return f"https://t.me/{TELEGRAM_BOT_USERNAME}?start={code}"
+        return f"https://telegram.me/{TELEGRAM_BOT_USERNAME}?start={code}"
     return code
 
 

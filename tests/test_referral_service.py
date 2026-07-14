@@ -39,14 +39,14 @@ class TestBuildReferralLink:
         import referral_service
         with patch.object(referral_service, "TELEGRAM_BOT_USERNAME", "MyBot"):
             link = referral_service.build_referral_link("REF_ABC123", channel="telegram")
-        assert link == "https://t.me/MyBot?start=REF_ABC123"
+        assert link == "https://telegram.me/MyBot?start=REF_ABC123"
 
     def test_telegram_default_channel(self):
         """ברירת מחדל ללא channel — Telegram (תאימות לאחור)."""
         import referral_service
         with patch.object(referral_service, "TELEGRAM_BOT_USERNAME", "MyBot"):
             link = referral_service.build_referral_link("REF_ABC123")
-        assert link == "https://t.me/MyBot?start=REF_ABC123"
+        assert link == "https://telegram.me/MyBot?start=REF_ABC123"
 
     def test_telegram_fallback_to_code_when_username_missing(self):
         import referral_service
@@ -83,7 +83,7 @@ class TestGetReferralMessageText:
         import referral_service
         with patch.object(referral_service, "TELEGRAM_BOT_USERNAME", "MyBot"):
             text = referral_service.get_referral_message_text("REF_X", channel="telegram")
-        assert "https://t.me/MyBot?start=REF_X" in text
+        assert "https://telegram.me/MyBot?start=REF_X" in text
 
     def test_whatsapp_includes_wa_me_link(self, db):
         import referral_service
@@ -91,7 +91,7 @@ class TestGetReferralMessageText:
             text = referral_service.get_referral_message_text("REF_X", channel="whatsapp")
         assert "https://wa.me/972501234567?text=REF_X" in text
         # ושאין דליפה של לינק טלגרם
-        assert "t.me/" not in text
+        assert "telegram.me/" not in text
 
     def test_text_includes_discount_and_period(self, db):
         import referral_service
@@ -118,7 +118,7 @@ class TestTrySendReferralCode:
                 "user_tg", send_fn=fake_send, channel="telegram",
             )
         assert ok is True
-        assert "https://t.me/MyBot?start=REF_" in captured["text"]
+        assert "https://telegram.me/MyBot?start=REF_" in captured["text"]
 
     def test_whatsapp_send_fn_receives_wa_me_text(self, db):
         import referral_service
@@ -134,7 +134,7 @@ class TestTrySendReferralCode:
             )
         assert ok is True
         assert "https://wa.me/972501234567?text=REF_" in captured["text"]
-        assert "t.me/" not in captured["text"]
+        assert "telegram.me/" not in captured["text"]
 
     def test_unmark_on_send_failure(self, db):
         """כשלון שליחה — הדגל מתאפס לניסיון חוזר."""

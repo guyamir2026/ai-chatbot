@@ -315,11 +315,16 @@
 
             <div class="form-group" style="margin-bottom: var(--space-md);">
                 <label class="form-label" for="admin_username" style="font-weight: 600;">
-                    שם משתמש אדמין
+                    {% if is_platform_tenant %}אימייל בעל העסק{% else %}שם משתמש אדמין{% endif %}
                 </label>
+                {% if is_platform_tenant %}
+                <div class="text-small text-muted" style="margin-bottom: var(--space-xs);">
+                    כתובת ההתחברות של בעל העסק. מנוהלת ברמת הפלטפורמה — לא ניתנת לעריכה מכאן.
+                </div>
+                {% endif %}
                 <input type="text" class="form-control" id="admin_username"
                        name="admin_username" value="{{ admin_username }}"
-                       required
+                       {% if is_platform_tenant %}disabled{% else %}required{% endif %}
                        autocomplete="off"
                        style="max-width: 300px; direction: ltr; text-align: left;">
             </div>
@@ -338,30 +343,6 @@
                        style="max-width: 300px; direction: ltr; text-align: left;">
                 <button type="button" class="btn btn-secondary btn-sm" style="margin-top: var(--space-xs);"
                         onclick="toggleVisibility('admin_password', this)">
-                    <i class="bi bi-eye"></i> הצג/הסתר
-                </button>
-            </div>
-
-            <div class="form-group" style="margin-bottom: var(--space-md);">
-                <label class="form-label" for="admin_secret_key" style="font-weight: 600;">
-                    מפתח סודי (Secret Key)
-                </label>
-                <div class="text-small text-muted" style="margin-bottom: var(--space-xs);">
-                    משמש להצפנת sessions ו-CSRF. מומלץ מחרוזת אקראית ארוכה.
-                    {% if has_secret_key %}
-                    <span style="color: var(--success);">&#10003; מוגדר.</span> השאירו ריק כדי לא לשנות.
-                    {% else %}
-                    <span style="color: var(--danger);">&#10007; לא מוגדר — חובה להזין.</span>
-                    {% endif %}
-                    שינוי ינתק את כל הסשנים הפעילים.
-                </div>
-                <input type="password" class="form-control" id="admin_secret_key"
-                       name="admin_secret_key" value=""
-                       placeholder="מפתח סודי חדש (ריק = ללא שינוי)"
-                       autocomplete="new-password"
-                       style="max-width: 500px; direction: ltr; text-align: left;">
-                <button type="button" class="btn btn-secondary btn-sm" style="margin-top: var(--space-xs);"
-                        onclick="toggleVisibility('admin_secret_key', this)">
                     <i class="bi bi-eye"></i> הצג/הסתר
                 </button>
             </div>

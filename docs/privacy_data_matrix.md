@@ -738,6 +738,18 @@ storage — bucket פרטי + הצפנה בצד השרת). ה-retention שלהם
 ה-tenant (‏`ON DELETE CASCADE` על owner). זכויות עיון/מחיקה של בעל העסק —
 מול המפעיל ישירות (יחסי ספק-לקוח, מוסדר ב-DPA).
 
+> **מחיקת tenant מלאה (decommission)** — `control_plane.delete_tenant`
+> (מעמוד "ניהול פלטפורמה" או `platform_cli delete-tenant`) מבצע מחיקה
+> שורשית של לקוח: (א) מוחק את שורת `tenants`, ואיתה דרך `ON DELETE CASCADE`
+> את `tenant_routes`, `tenant_secrets` ומשתמשי ה-`owner` ב-`admin_users`
+> (‏`platform_admin` עם `tenant_id=NULL` אינו מושפע); (ב) מוחק מהדיסק את
+> **כל** ה-data plane של העסק (`chatbot.db` + אינדקס FAISS) — כלומר כל
+> ה-PII של משתמשי הקצה של אותו עסק (מ-`conversations` ועד `customer_facts`)
+> נמחק יחד; (ג) שומר גיבוי אחרון תחת `BACKUP_DIR` (‏`deleted-<stamp>/`)
+> לחלון שחזור. ביטול ה-webhook מול טלגרם רץ *לפני* מחיקת הטוקן. זהו מסלול
+> מחיקה **ברמת-עסק** — משלים את `delete_user_data` שפועל על משתמש-קצה בודד
+> בתוך ה-data plane של עסק.
+
 ---
 
 ## חלק ג' — מקרי קצה שכדאי לעקוב אחריהם

@@ -237,6 +237,54 @@ class TestPlatformScreen:
             assert "acting_tenant" not in sess
         assert cp.get_tenant("salon-a")["status"] == "suspended"
 
+    def test_delete_tenant_removes_everything(self, platform_env):
+        client = _make_app().test_client()
+        self._login_platform(client)
+        resp = client.post(
+            "/platform/tenants/salon-a/delete", data={"confirm_slug": "salon-a"},
+        )
+        assert resp.status_code == 302
+        # השורה נמחקה; השכן salon-b נשאר
+        assert cp.get_tenant("salon-a") is None
+        assert cp.get_tenant("salon-b") is not None
+        # ה-owner של salon-a נמחק ב-cascade; ה-platform_admin שרד
+        assert cp.list_admin_users("salon-a") == []
+        assert cp.verify_admin_login("amir@platform.com", "platform-pw1")
+        # קבצי ה-data plane נמחקו מהדיסק
+        assert not (platform_env / "tenants" / "salon-a").exists()
+
+    def test_delete_wrong_confirm_slug_aborts(self, platform_env):
+        client = _make_app().test_client()
+        self._login_platform(client)
+        resp = client.post(
+            "/platform/tenants/salon-a/delete", data={"confirm_slug": "wrong"},
+        )
+        assert resp.status_code == 302
+        assert cp.get_tenant("salon-a") is not None  # לא נמחק
+
+    def test_delete_clears_acting_tenant(self, platform_env):
+        client = _make_app().test_client()
+        self._login_platform(client)
+        client.post("/platform/act-as/salon-a")
+        client.post(
+            "/platform/tenants/salon-a/delete", data={"confirm_slug": "salon-a"},
+        )
+        with client.session_transaction() as sess:
+            assert "acting_tenant" not in sess
+        assert cp.get_tenant("salon-a") is None
+
+    def test_owner_cannot_delete_tenant(self, platform_env):
+        client = _make_app().test_client()
+        client.post(
+            "/login",
+            data={"username": "owner-a@example.com", "password": "password-a1"},
+        )
+        resp = client.post(
+            "/platform/tenants/salon-b/delete", data={"confirm_slug": "salon-b"},
+        )
+        assert resp.status_code == 404
+        assert cp.get_tenant("salon-b") is not None  # לא נמחק
+
 
 class TestCreateAdminCli:
     def test_cli_create_and_list(self, platform_env, capsys, monkeypatch):

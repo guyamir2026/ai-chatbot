@@ -105,6 +105,16 @@
                             <button type="submit" class="btn btn-success btn-sm">הפעל</button>
                         </form>
                         {% endif %}
+                        {# מחיקה מלאה ובלתי-הפיכה — זמינה בכל סטטוס. אישור חזק:
+                           הקלדת מזהה הלקוח (confirmTenantDelete), והשרת בודק שוב. #}
+                        <form method="POST" action="{{ url_for('platform_tenant_delete', tenant_id=t.tenant_id) }}" style="margin: 0;"
+                              onsubmit="return confirmTenantDelete(this, '{{ t.tenant_id }}');">
+                            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                            <input type="hidden" name="confirm_slug" value="">
+                            <button type="submit" class="btn btn-danger btn-sm" title="מחיקה מלאה ובלתי-הפיכה של הלקוח וכל נתוניו">
+                                <i class="bi bi-trash"></i> מחק
+                            </button>
+                        </form>
                     </td>
                 </tr>
                 {% endfor %}
@@ -125,4 +135,25 @@ python -m platform_cli create-admin owner@example.com salon-a
 python -m platform_cli show-urls salon-a</pre>
     </div>
 </div>
+
+<script>
+// אישור חזק למחיקה הרסנית: חובה להקליד את מזהה הלקוח (כמו מחיקת repo).
+// ממלא את השדה confirm_slug רק כשההקלדה תואמת; השרת בודק שוב בצד שלו.
+function confirmTenantDelete(form, slug) {
+    var typed = window.prompt(
+        'פעולה בלתי-הפיכה!\n\n' +
+        'מחיקת הלקוח "' + slug + '" תמחק לצמיתות את כל נתוניו: ' +
+        'שיחות, תורים, בסיס ידע, סודות (טוקנים) וחשבון בעל העסק.\n' +
+        'גיבוי אחרון יישמר בתיקיית הגיבויים.\n\n' +
+        'להמשך — הקלד את מזהה הלקוח: ' + slug
+    );
+    if (typed === null) { return false; }  // המשתמש ביטל
+    if (typed.trim() !== slug) {
+        alert('המזהה שהוקלד אינו תואם. המחיקה בוטלה.');
+        return false;
+    }
+    form.querySelector('input[name="confirm_slug"]').value = typed.trim();
+    return true;
+}
+</script>
 {% endblock %}
