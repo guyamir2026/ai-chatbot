@@ -11,7 +11,7 @@
             {% if appt.telegram_username %}
             <br>
             <a class="text-small" href="{% if is_demo_session %}#{% else %}https://telegram.me/{{ appt.telegram_username }}{% endif %}" target="_blank" rel="noopener">
-                @{{ appt.telegram_username | mask_username }}
+                <span dir="ltr">@{{ appt.telegram_username | mask_username }}</span>
             </a>
             {% else %}
             <br><span class="text-small text-muted">ללא שם משתמש בטלגרם</span>

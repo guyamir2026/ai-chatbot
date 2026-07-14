@@ -74,7 +74,7 @@
                 </label>
                 <div class="text-small text-muted" style="margin-bottom: var(--space-xs);">
                     מזהה הצ'אט שלך בטלגרם — לשם נשלחות התראות על בקשות נציג ותורים.
-                    ניתן לקבל מ-@userinfobot.
+                    ניתן לקבל מ-<span dir="ltr">@userinfobot</span>.
                 </div>
                 <input type="text" class="form-control" id="telegram_owner_chat_id"
                        name="telegram_owner_chat_id" value="{{ telegram_owner_chat_id }}"
@@ -284,7 +284,7 @@
                     <i class="bi bi-facebook" style="color: #1877F2;"></i>
                     <strong>{{ p.page_name or p.page_id }}</strong>
                     {% if p.ig_username %}
-                    <span class="text-small text-muted">+ <i class="bi bi-instagram"></i> @{{ p.ig_username }}</span>
+                    <span class="text-small text-muted">+ <i class="bi bi-instagram"></i> <span dir="ltr">@{{ p.ig_username }}</span></span>
                     {% elif p.ig_business_account_id %}
                     <span class="text-small text-muted">+ <i class="bi bi-instagram"></i> Instagram</span>
                     {% endif %}

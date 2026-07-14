@@ -16,7 +16,7 @@
             <div>
                 <strong>בקשת העברה לנציג</strong> —
                 {{ req.username|mask_name }}{% set _note_user_id = req.user_id %}{% include "partials/user_note_icon.html" %}
-                {% if req.telegram_username %}(@{{ req.telegram_username | mask_username }}){% endif %}
+                {% if req.telegram_username %}(<span dir="ltr">@{{ req.telegram_username | mask_username }}</span>){% endif %}
                 <br>
                 <span class="text-small">{{ req.message }}</span>
                 {% if req.created_at %}

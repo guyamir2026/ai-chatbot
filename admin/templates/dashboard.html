@@ -143,7 +143,7 @@
                             {% if req.telegram_username %}
                             <br>
                             <a class="text-small" href="{% if is_demo_session %}#{% else %}https://telegram.me/{{ req.telegram_username }}{% endif %}" target="_blank" rel="noopener">
-                                @{{ req.telegram_username | mask_username }}
+                                <span dir="ltr">@{{ req.telegram_username | mask_username }}</span>
                             </a>
                             {% endif %}
                             <br><span class="text-small text-muted" title="{{ req.created_at|il_datetime }}">{{ req.created_at|relative_time }}</span>
@@ -190,7 +190,7 @@
                     </div>
                     {% if appt.telegram_username %}
                     <a class="text-small" href="{% if is_demo_session %}#{% else %}https://telegram.me/{{ appt.telegram_username }}{% endif %}" target="_blank" rel="noopener">
-                        @{{ appt.telegram_username | mask_username }}
+                        <span dir="ltr">@{{ appt.telegram_username | mask_username }}</span>
                     </a>
                     <br>
                     {% endif %}
