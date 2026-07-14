@@ -1,0 +1,12 @@
+{# Toast שמוצג כשגולש במצב דמו מנסה לבצע פעולת כתיבה. #}
+{# מוזרק ל-#demo-toast-container ב-base.html דרך HTMX (HX-Retarget). #}
+<div class="alert alert-info demo-blocked-toast" role="status">
+    <i class="bi bi-info-circle"></i>
+    <span>במצב דמו השינויים לא נשמרים. רוצה כזה לעסק שלך?
+        {% if demo_cta_whatsapp %}
+        <a href="https://wa.me/{{ demo_cta_whatsapp|replace('+', '')|replace('-', '')|replace(' ', '') }}?text=ראיתי את הדמו, מעוניין בפרטים"
+           target="_blank" rel="noopener">דברו איתנו בוואטסאפ ←</a>
+        {% endif %}
+    </span>
+    <button class="btn-close" onclick="this.parentElement.remove()" aria-label="סגור">&times;</button>
+</div>
