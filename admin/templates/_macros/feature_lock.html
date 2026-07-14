@@ -1,0 +1,50 @@
+{#
+  Macros לחסימת UI לפי feature flags (Phase 4).
+
+  שימוש (sidebar links):
+    {% from "_macros/feature_lock.html" import sidebar_link %}
+    {{ sidebar_link("broadcast", "/broadcast", "bi-megaphone", "שליחת הודעות",
+                     active_endpoints=["broadcast"]) }}
+
+  אם הפיצ'ר פעיל — נבנה לינק רגיל. אחרת — נבנה כפתור "נעול" שפותח את
+  upgrade modal (חייב להיות נכלל בעמוד — ראה _partials/upgrade_modal.html).
+#}
+
+{% macro sidebar_link(feature, href, icon, label, active_endpoints=[]) -%}
+  {% if has_feature(feature) %}
+    <a href="{{ href }}"
+       class="{% if request.endpoint in active_endpoints %}active{% endif %}">
+      <i class="bi {{ icon }}"></i> {{ label }}
+    </a>
+  {% else %}
+    <a href="javascript:void(0)"
+       class="locked-feature"
+       data-feature="{{ feature }}"
+       data-feature-label="{{ label }}"
+       title="פיצ'ר זה לא זמין בחבילה הנוכחית — לחצו לפרטים על שדרוג"
+       onclick="showUpgradeModal('{{ feature|e }}', '{{ label|e }}')">
+      <i class="bi {{ icon }}"></i> {{ label }}
+      <i class="bi bi-lock-fill" aria-label="נעול"
+         style="font-size: 0.75em; opacity: 0.65; margin-right: 0.3rem;"></i>
+    </a>
+  {% endif %}
+{%- endmacro %}
+
+
+{#
+  כפתור פעולה (button) שתלוי בפיצ'ר. שונה מ-sidebar_link כי הוא מוצג
+  בתוך תוכן עמוד, לא בניווט.
+#}
+{% macro feature_button(feature, label, href, icon='', extra_classes='btn-primary') -%}
+  {% if has_feature(feature) %}
+    <a href="{{ href }}" class="btn {{ extra_classes }}">
+      {% if icon %}<i class="bi {{ icon }}"></i>{% endif %} {{ label }}
+    </a>
+  {% else %}
+    <button type="button" class="btn btn-locked"
+            data-feature="{{ feature }}"
+            onclick="showUpgradeModal('{{ feature|e }}', '{{ label|e }}')">
+      <i class="bi bi-lock-fill"></i> {{ label }}
+    </button>
+  {% endif %}
+{%- endmacro %}
