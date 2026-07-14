@@ -64,7 +64,9 @@ class TestVacationMessages:
         from vacation_service import VacationService
         db.update_vacation_mode(True, vacation_end_date="2026-04-01")
         msg = VacationService.get_booking_message()
-        assert "2026-04-01" in msg
+        # תאריך מוצג בפורמט ישראלי DD/MM/YYYY, לא ISO
+        assert "01/04/2026" in msg
+        assert "2026-04-01" not in msg
         assert "חופשה" in msg
 
     def test_booking_message_without_end_date(self, db):
@@ -83,7 +85,8 @@ class TestVacationMessages:
         from vacation_service import VacationService
         db.update_vacation_mode(True, vacation_end_date="2026-04-01")
         msg = VacationService.get_agent_message()
-        assert "2026-04-01" in msg
+        assert "01/04/2026" in msg
+        assert "2026-04-01" not in msg
 
     def test_agent_message_without_end_date(self, db):
         from vacation_service import VacationService
@@ -96,7 +99,8 @@ class TestVacationMessages:
         from vacation_service import VacationService
         db.update_vacation_mode(True, vacation_end_date="2026-04-30")
         msg = VacationService.get_hours_message()
-        assert "2026-04-30" in msg
+        assert "30/04/2026" in msg
+        assert "2026-04-30" not in msg
         assert "בחופשה" in msg
         # הודעת השעות לא צריכה לדבר על תורים — היא ספציפית לשעות פעילות
         assert "תורים" not in msg

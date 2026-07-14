@@ -336,7 +336,7 @@ class TestBusinessHoursIntent:
         with patch("core.message_processor.VacationService") as mock_vac:
             mock_vac.is_active.return_value = True
             mock_vac.get_hours_message.return_value = (
-                "אנחנו בחופשה עד 2026-04-30.\nנחזור לפעילות החל מ-2026-04-30."
+                "אנחנו בחופשה עד 30/04/2026.\nנחזור לפעילות החל מ-30/04/2026."
             )
 
             from core.message_processor import process_incoming_message
@@ -349,7 +349,7 @@ class TestBusinessHoursIntent:
 
         assert result.intent == Intent.BUSINESS_HOURS
         assert "בחופשה" in result.text
-        assert "2026-04-30" in result.text
+        assert "30/04/2026" in result.text
         # סטטוס "פתוחים עכשיו" המטעה לא צריך להופיע במצב חופשה
         assert "אנחנו פתוחים!" not in result.text
         # שעות הפעילות הרגילות עדיין נכללות לעיון לאחר החזרה

@@ -18,6 +18,7 @@ from telegram.ext import ContextTypes, ConversationHandler
 
 from ai_chatbot import database as db
 from ai_chatbot.live_chat_service import LiveChatService
+from utils.dates import format_il_date
 
 logger = logging.getLogger(__name__)
 
@@ -56,9 +57,10 @@ class VacationService:
             return custom_msg
 
         if end_date:
+            end_date_il = format_il_date(end_date)  # DD/MM/YYYY לתצוגה ללקוח
             return (
-                f"אנחנו בחופשה עד {end_date}.\n"
-                f"ניתן לקבוע תורים החל מ-{end_date}.\n"
+                f"אנחנו בחופשה עד {end_date_il}.\n"
+                f"ניתן לקבוע תורים החל מ-{end_date_il}.\n"
                 "בינתיים, אתם מוזמנים לשאול אותי כל שאלה על השירותים שלנו!"
             )
 
@@ -75,8 +77,9 @@ class VacationService:
         end_date = vacation.get("vacation_end_date", "").strip()
 
         if end_date:
+            end_date_il = format_il_date(end_date)  # DD/MM/YYYY לתצוגה ללקוח
             return (
-                f"אנחנו בחופשה עד {end_date}.\n"
+                f"אנחנו בחופשה עד {end_date_il}.\n"
                 "ניצור קשר כשנחזור.\n"
                 "בינתיים, אני יכול לענות על שאלות לגבי השירותים שלנו!"
             )
@@ -98,9 +101,10 @@ class VacationService:
         end_date = vacation.get("vacation_end_date", "").strip()
 
         if end_date:
+            end_date_il = format_il_date(end_date)  # DD/MM/YYYY לתצוגה ללקוח
             return (
-                f"אנחנו בחופשה עד {end_date}.\n"
-                f"נחזור לפעילות החל מ-{end_date}."
+                f"אנחנו בחופשה עד {end_date_il}.\n"
+                f"נחזור לפעילות החל מ-{end_date_il}."
             )
 
         return (

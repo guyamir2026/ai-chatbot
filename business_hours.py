@@ -16,6 +16,7 @@ from zoneinfo import ZoneInfo
 import holidays as holidays_lib
 
 from ai_chatbot import database as db
+from utils.dates import format_il_date
 
 logger = logging.getLogger(__name__)
 
@@ -402,6 +403,11 @@ def get_hours_context_for_llm() -> str:
             vacation_end_date = (vacation.get("vacation_end_date") or "").strip()
     except Exception as e:
         logger.error("Failed to get vacation mode for LLM context: %s", e)
+
+    # פורמט ישראלי (DD/MM/YYYY) לתאריך החזרה — ה-LLM מצטט אותו ללקוח.
+    # ריק נשאר ריק (format_il_date("") == ""), כך שהבדיקות if vacation_end_date
+    # למטה עדיין תקינות.
+    vacation_end_date = format_il_date(vacation_end_date)
 
     if vacation_active:
         if vacation_end_date:
