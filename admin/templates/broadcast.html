@@ -1,0 +1,402 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="page-header animate-fade-in">
+    <h1><i class="bi bi-megaphone"></i> שליחת הודעות</h1>
+</div>
+
+<!-- טופס שליחה -->
+<div class="card animate-slide-up stagger-1" style="margin-bottom: var(--space-sm);">
+    <div class="card-header">
+        <span><i class="bi bi-send"></i> הודעה חדשה</span>
+    </div>
+    <div class="card-body">
+        <form method="POST" action="/broadcast/send" id="broadcast-form"
+              onsubmit="return confirmBroadcast()">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+
+            <!-- בחירת קהל יעד -->
+            <div class="form-group" style="margin-bottom: var(--space-sm);">
+                <label class="form-label"><strong>קהל יעד:</strong></label>
+                <div style="display: flex; flex-direction: column; gap: 0.5rem; margin-top: 0.25rem;">
+                    <label style="display: flex; align-items: center; gap: 0.5rem; cursor: pointer;">
+                        <input type="radio" name="audience" value="all" checked
+                               hx-get="/broadcast/count?audience=all"
+                               hx-target="#recipient-count"
+                               hx-swap="innerHTML"
+                               onchange="toggleAudienceMode('standard')">
+                        <span>כל הלקוחות</span>
+                        <span class="text-small text-muted">(כל מי שדיבר עם הבוט)</span>
+                    </label>
+                    <label style="display: flex; align-items: center; gap: 0.5rem; cursor: pointer;">
+                        <input type="radio" name="audience" value="booked"
+                               hx-get="/broadcast/count?audience=booked"
+                               hx-target="#recipient-count"
+                               hx-swap="innerHTML"
+                               onchange="toggleAudienceMode('standard')">
+                        <span>קבעו תור</span>
+                        <span class="text-small text-muted">(רק מי שקבע תור אי פעם)</span>
+                    </label>
+                    <label style="display: flex; align-items: center; gap: 0.5rem; cursor: pointer;">
+                        <input type="radio" name="audience" value="recent"
+                               hx-get="/broadcast/count?audience=recent"
+                               hx-target="#recipient-count"
+                               hx-swap="innerHTML"
+                               onchange="toggleAudienceMode('standard')">
+                        <span>פעילים לאחרונה</span>
+                        <span class="text-small text-muted">(פעילות ב-30 הימים האחרונים)</span>
+                    </label>
+                    <label style="display: flex; align-items: center; gap: 0.5rem; cursor: pointer;">
+                        <input type="radio" name="audience" value="custom"
+                               onchange="toggleAudienceMode('custom')">
+                        <span>קהל מותאם אישית</span>
+                        <span class="text-small text-muted">(בחירה ידנית מרשימת הלקוחות)</span>
+                    </label>
+                </div>
+
+                <!-- שורת נמענים — מצב סטנדרטי -->
+                <div id="standard-count" style="margin-top: 0.5rem; padding: 0.5rem; background: var(--bg-secondary); border-radius: var(--radius);">
+                    <i class="bi bi-people"></i>
+                    נמענים: <strong id="recipient-count">{{ recipient_counts.all }}</strong>
+                </div>
+
+                <!-- שורת נמענים — מצב custom -->
+                <div id="custom-count" style="margin-top: 0.5rem; padding: 0.5rem; background: var(--bg-secondary); border-radius: var(--radius); display: none;">
+                    <i class="bi bi-people"></i>
+                    נבחרו: <strong id="selected-count">0</strong> לקוחות
+                </div>
+            </div>
+
+            <!-- בחירת ערוצים — רק במצב סטנדרטי -->
+            <div id="channel-selection" class="form-group" style="margin-bottom: var(--space-sm);">
+                <label class="form-label"><strong>ערוצי שליחה:</strong></label>
+                <div style="display: flex; gap: 1rem; margin-top: 0.25rem;">
+                    <label style="display: flex; align-items: center; gap: 0.5rem; cursor: pointer;">
+                        <input type="checkbox" name="channel_telegram" value="1" checked>
+                        <i class="bi bi-telegram" style="color: #0088cc;"></i> Telegram
+                    </label>
+                    <label style="display: flex; align-items: center; gap: 0.5rem; cursor: pointer;">
+                        <input type="checkbox" name="channel_whatsapp" value="1" checked>
+                        <i class="bi bi-whatsapp" style="color: #25d366;"></i> WhatsApp
+                    </label>
+                </div>
+            </div>
+
+            <!-- סינון לקוחות — רק במצב custom -->
+            <div id="custom-audience-section" style="display: none; margin-bottom: var(--space-sm);">
+                <div class="card" style="border: 1px solid var(--border-color);">
+                    <div class="card-header">
+                        <span><i class="bi bi-funnel"></i> סינון לקוחות</span>
+                    </div>
+                    <div class="card-body">
+                        <div style="display: flex; gap: 1rem; flex-wrap: wrap; margin-bottom: 0.75rem;">
+                            <div style="flex: 1; min-width: 200px;">
+                                <label class="form-label text-small">לא פעילים מעל:</label>
+                                <div style="display: flex; align-items: center; gap: 0.5rem;">
+                                    <input type="number" id="inactive-days-input" class="form-control"
+                                           value="30" min="1" max="999" style="width: 80px;"
+                                           hx-get="/broadcast/users"
+                                           hx-trigger="change, keyup changed delay:500ms"
+                                           hx-target="#users-table-container"
+                                           hx-swap="outerHTML"
+                                           hx-include="#user-search-input"
+                                           name="inactive_days">
+                                    <span class="text-small">ימים</span>
+                                    <button type="button" class="btn btn-secondary btn-sm"
+                                            onclick="clearInactiveDays()"
+                                            title="הצג את כל הלקוחות">
+                                        <i class="bi bi-x-lg"></i>
+                                    </button>
+                                </div>
+                            </div>
+                            <div style="flex: 2; min-width: 200px;">
+                                <label class="form-label text-small">חיפוש חופשי:</label>
+                                <input type="text" id="user-search-input" class="form-control"
+                                       placeholder="שם לקוח או מזהה..."
+                                       hx-get="/broadcast/users"
+                                       hx-trigger="keyup changed delay:300ms"
+                                       hx-target="#users-table-container"
+                                       hx-swap="outerHTML"
+                                       hx-include="#inactive-days-input, #user-search-input"
+                                       name="search">
+                            </div>
+                        </div>
+
+                        <!-- טבלת משתמשים — תוחלף ע"י HTMX -->
+                        <div id="users-table-container">
+                            <div class="text-muted text-small" style="padding: 1rem; text-align: center;">
+                                <i class="bi bi-arrow-up-circle"></i> בחרו סינון כדי לראות את רשימת הלקוחות
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- תוכן ההודעה -->
+            <div class="form-group" style="margin-bottom: var(--space-sm);">
+                <label for="message_text" class="form-label"><strong>תוכן ההודעה:</strong></label>
+                <textarea name="message_text" id="message_text" class="form-control"
+                          rows="5" maxlength="4096" required
+                          placeholder="כתבו כאן את ההודעה שתישלח ללקוחות..."
+                          style="resize: vertical;"></textarea>
+                <div class="text-small text-muted" style="margin-top: 0.25rem;">
+                    עד 4,096 תווים. ההודעה תישלח כטקסט רגיל.
+                </div>
+            </div>
+
+            <button type="submit" class="btn btn-primary" id="send-btn"
+                    {% if recipient_counts.all == 0 %}disabled{% endif %}>
+                <i class="bi bi-send"></i> שלח הודעה
+            </button>
+        </form>
+    </div>
+</div>
+
+<!-- היסטוריית שידורים -->
+<div class="card animate-slide-up stagger-2">
+    <div class="card-header">
+        <span><i class="bi bi-clock-history"></i> היסטוריית שידורים</span>
+        <a href="/broadcast" class="btn btn-secondary btn-sm" title="רענן סטטוס">
+            <i class="bi bi-arrow-clockwise"></i>
+        </a>
+    </div>
+    <div class="card-body">
+        <div class="text-small text-muted" style="margin-bottom: var(--space-sm);">
+            <i class="bi bi-info-circle"></i>
+            לחצו על <i class="bi bi-arrow-clockwise"></i> כדי לבדוק סטטוס עדכני של שידורים.
+        </div>
+        {% if broadcasts %}
+        <div class="table-responsive">
+            <table class="table">
+                <thead>
+                    <tr>
+                        <th>#</th>
+                        <th>קהל</th>
+                        <th>הודעה</th>
+                        <th>נשלח</th>
+                        <th>נכשל</th>
+                        <th>סטטוס</th>
+                        <th>תאריך</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for bc in broadcasts %}
+                    <tr>
+                        <td data-label="#">{{ bc.id }}</td>
+                        <td data-label="קהל">
+                            {% if bc.audience == 'custom' %}
+                            <a href="#" class="audience-link"
+                               title="הצג רשימת לקוחות"
+                               onclick="openBroadcastRecipientsModal({{ bc.id }}); return false;">
+                                {{ audience_labels.get(bc.audience, bc.audience) }}
+                                <i class="bi bi-people-fill text-small"></i>
+                            </a>
+                            {% else %}
+                            {{ audience_labels.get(bc.audience, bc.audience) }}
+                            {% endif %}
+                        </td>
+                        <td data-label="הודעה">
+                            <span title="{{ bc.message_text }}">
+                                {{ bc.message_text[:80] }}{% if bc.message_text|length > 80 %}...{% endif %}
+                            </span>
+                        </td>
+                        <td data-label="נשלח">{{ bc.sent_count }} / {{ bc.total_recipients }}</td>
+                        <td data-label="נכשל">{{ bc.failed_count }}</td>
+                        <td data-label="סטטוס">
+                            {% if bc.status == 'queued' %}
+                            <span class="badge badge-warning">בתור</span>
+                            {% elif bc.status == 'sending' %}
+                            <span class="badge badge-info">שולח...</span>
+                            {% elif bc.status == 'completed' %}
+                            <span class="badge badge-success">הושלם</span>
+                            {% elif bc.status == 'failed' %}
+                            <span class="badge badge-danger">נכשל</span>
+                            {% endif %}
+                        </td>
+                        <td data-label="תאריך" class="text-small text-muted">{{ bc.created_at|il_datetime }}</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% else %}
+        <div class="empty-state">
+            <i class="bi bi-megaphone"></i>
+            <p>עדיין לא נשלחו הודעות שידור.</p>
+        </div>
+        {% endif %}
+    </div>
+</div>
+
+<!-- מודאל רשימת לקוחות בקהל מותאם אישית — תוכן נטען דרך HTMX -->
+<div id="broadcast-recipients-overlay" class="appt-modal-overlay"
+     style="display: none;"
+     onclick="if (event.target === this) closeBroadcastRecipientsModal()">
+    <div class="appt-modal" id="broadcast-recipients-modal" role="dialog" aria-modal="true">
+        <div id="broadcast-recipients-content">
+            <div class="appt-modal-body" style="text-align: center; padding: 2rem;">
+                <i class="bi bi-arrow-repeat" style="font-size: 1.5rem;"></i>
+                <p class="text-muted">טוען...</p>
+            </div>
+        </div>
+    </div>
+</div>
+
+<style>
+/* קישור "קהל מותאם אישית" בטבלת היסטוריית שידורים */
+.audience-link {
+    color: var(--primary-color, #0d6efd);
+    text-decoration: none;
+    cursor: pointer;
+}
+.audience-link:hover {
+    text-decoration: underline;
+}
+.audience-link i {
+    margin-inline-start: 0.25rem;
+    opacity: 0.7;
+}
+</style>
+
+<script>
+/* פתיחת מודאל רשימת נמענים של שידור מותאם אישית */
+function openBroadcastRecipientsModal(broadcastId) {
+    var overlay = document.getElementById('broadcast-recipients-overlay');
+    var content = document.getElementById('broadcast-recipients-content');
+    /* איפוס תוכן לטעינה — מציג spinner עד שה-HTMX מחזיר */
+    content.innerHTML = '<div class="appt-modal-body" style="text-align: center; padding: 2rem;">'
+        + '<i class="bi bi-arrow-repeat" style="font-size: 1.5rem;"></i>'
+        + '<p class="text-muted">טוען...</p></div>';
+    overlay.style.display = '';
+    htmx.ajax('GET', '/broadcast/' + broadcastId + '/recipients', {
+        target: '#broadcast-recipients-content',
+        swap: 'innerHTML'
+    });
+}
+
+/* סגירת המודאל */
+function closeBroadcastRecipientsModal() {
+    var overlay = document.getElementById('broadcast-recipients-overlay');
+    if (overlay) overlay.style.display = 'none';
+}
+
+/* סגירה ב-Escape */
+document.addEventListener('keydown', function(e) {
+    if (e.key === 'Escape') {
+        var overlay = document.getElementById('broadcast-recipients-overlay');
+        if (overlay && overlay.style.display !== 'none') {
+            closeBroadcastRecipientsModal();
+        }
+    }
+});
+
+/* מעבר בין מצב קהל סטנדרטי למותאם אישית */
+function toggleAudienceMode(mode) {
+    var standardCount = document.getElementById('standard-count');
+    var customCount = document.getElementById('custom-count');
+    var channelSelection = document.getElementById('channel-selection');
+    var customSection = document.getElementById('custom-audience-section');
+
+    if (mode === 'custom') {
+        standardCount.style.display = 'none';
+        customCount.style.display = 'block';
+        channelSelection.style.display = 'none';
+        customSection.style.display = 'block';
+        /* טעינה ראשונית של טבלת המשתמשים */
+        loadUsersTable();
+    } else {
+        standardCount.style.display = 'block';
+        customCount.style.display = 'none';
+        channelSelection.style.display = 'block';
+        customSection.style.display = 'none';
+    }
+}
+
+/* טעינת טבלת משתמשים */
+function loadUsersTable() {
+    var inactiveDays = document.getElementById('inactive-days-input').value;
+    var search = document.getElementById('user-search-input').value;
+    var params = new URLSearchParams();
+    if (inactiveDays) params.set('inactive_days', inactiveDays);
+    if (search) params.set('search', search);
+    htmx.ajax('GET', '/broadcast/users?' + params.toString(), {
+        target: '#users-table-container',
+        swap: 'outerHTML'
+    });
+}
+
+/* ניקוי סינון ימי חוסר פעילות */
+function clearInactiveDays() {
+    var input = document.getElementById('inactive-days-input');
+    input.value = '';
+    loadUsersTable();
+}
+
+/* בחירת/ביטול כל המשתמשים */
+function toggleAllUsers(selectAllCheckbox, totalPages) {
+    var checkboxes = document.querySelectorAll('.user-checkbox');
+    var selectAllHidden = document.getElementById('select-all-filtered');
+    if (totalPages > 1) {
+        /* מספר עמודים — משתמשים ב-select_all_filtered flag בצד השרת */
+        selectAllHidden.value = selectAllCheckbox.checked ? '1' : '0';
+        checkboxes.forEach(function(cb) { cb.checked = selectAllCheckbox.checked; });
+    } else {
+        /* עמוד יחיד — רק checkboxes */
+        selectAllHidden.value = '0';
+        checkboxes.forEach(function(cb) { cb.checked = selectAllCheckbox.checked; });
+    }
+    updateSelectedCount();
+}
+
+/* עדכון מונה נבחרים */
+function updateSelectedCount() {
+    var selectAllHidden = document.getElementById('select-all-filtered');
+    var countEl = document.getElementById('selected-count');
+    var selectAll = document.getElementById('select-all-users');
+
+    if (selectAllHidden && selectAllHidden.value === '1' && selectAll && selectAll.dataset.total) {
+        /* מצב "בחר הכל" על מספר עמודים — מציגים את הסך הכולל */
+        if (countEl) countEl.textContent = selectAll.dataset.total;
+        return;
+    }
+
+    var checked = document.querySelectorAll('.user-checkbox:checked').length;
+    if (countEl) countEl.textContent = checked;
+
+    /* עדכון "בחר הכל" */
+    var total = document.querySelectorAll('.user-checkbox').length;
+    if (selectAll) selectAll.checked = (checked === total && total > 0);
+
+    /* ביטול flag אם המשתמש ביטל checkboxes ידנית */
+    if (selectAllHidden && checked < total) selectAllHidden.value = '0';
+}
+
+/* אישור שליחה */
+function confirmBroadcast() {
+    var audience = document.querySelector('input[name="audience"]:checked').value;
+    if (audience === 'custom') {
+        var selectAllHidden = document.getElementById('select-all-filtered');
+        if (selectAllHidden && selectAllHidden.value === '1') {
+            var totalCount = document.getElementById('custom-user-count');
+            var count = totalCount ? totalCount.textContent : '0';
+            return confirm('לשלוח את ההודעה לכל ' + count + ' הלקוחות המסוננים?');
+        }
+        var count = document.querySelectorAll('.user-checkbox:checked').length;
+        if (count === 0) {
+            alert('לא נבחרו לקוחות לשליחה.');
+            return false;
+        }
+        return confirm('לשלוח את ההודעה ל-' + count + ' לקוחות נבחרים?');
+    }
+    var recipientCount = document.getElementById('recipient-count').textContent;
+    return confirm('לשלוח את ההודעה ל-' + recipientCount + ' נמענים?');
+}
+
+/* עדכון מונה נבחרים אחרי כל החלפת HTMX */
+document.body.addEventListener('htmx:afterSwap', function(evt) {
+    if (evt.detail.target && evt.detail.target.id === 'users-table-container') {
+        updateSelectedCount();
+    }
+});
+</script>
+{% endblock %}
