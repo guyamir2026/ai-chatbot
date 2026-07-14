@@ -1,0 +1,244 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="page-header animate-fade-in">
+    <h1><i class="bi bi-speedometer2"></i> לוח בקרה</h1>
+</div>
+
+{# כרטיס "דבר עם הבוט" — רק לגולשי דמו, כשמוגדר קישור לבוט הטלגרם. #}
+{% if is_demo_session and demo_live_bot_url %}
+<div class="demo-live-bot-card animate-fade-in">
+    <div class="demo-live-bot-icon" aria-hidden="true">🤖</div>
+    <div class="demo-live-bot-text">
+        <h3>דבר עם הבוט עכשיו</h3>
+        <p>הבוט שאתה רואה כאן בפאנל — מחובר לבסיס הידע שלמטה.
+           נסה אותו בטלגרם וקבל את אותה חוויה ש<strong>הלקוחות שלך</strong>
+           יקבלו ב-WhatsApp. אותו קוד, אותו RAG.</p>
+    </div>
+    <a class="demo-live-bot-cta"
+       href="{{ demo_live_bot_url }}"
+       target="_blank" rel="noopener">
+        <i class="bi bi-telegram"></i>
+        פתח בטלגרם
+    </a>
+</div>
+{% endif %}
+
+<!-- Stats Cards -->
+<div class="stats-grid">
+    <div class="stat-card gradient-warning animate-slide-up stagger-1">
+        <div class="stat-icon"><i class="bi bi-bell"></i></div>
+        <div class="stat-value">{{ stats.pending_requests }}</div>
+        <div class="stat-label">בקשות נציג</div>
+    </div>
+    <div class="stat-card gradient-purple animate-slide-up stagger-2">
+        <div class="stat-icon"><i class="bi bi-calendar-plus"></i></div>
+        <div class="stat-value">{{ stats.pending_appointments }}</div>
+        <div class="stat-label">תורים חדשים</div>
+    </div>
+    <div class="stat-card gradient-info animate-slide-up stagger-3">
+        <div class="stat-icon"><i class="bi bi-calendar-check"></i></div>
+        <div class="stat-value">{{ stats.upcoming_appointments }}</div>
+        <div class="stat-label">תורים קרובים</div>
+    </div>
+    <div class="stat-card gradient-success animate-slide-up stagger-4">
+        <div class="stat-icon"><i class="bi bi-headset"></i></div>
+        <div class="stat-value">{{ stats.active_live_chats }}</div>
+        <div class="stat-label">שיחות חיות</div>
+    </div>
+    <div class="stat-card gradient-dark animate-slide-up stagger-5">
+        <div class="stat-icon"><i class="bi bi-question-circle"></i></div>
+        <div class="stat-value">{{ stats.open_knowledge_gaps }}</div>
+        <div class="stat-label">פערי ידע</div>
+    </div>
+    <div class="stat-card gradient-blue animate-slide-up stagger-5">
+        <div class="stat-icon"><i class="bi bi-bug"></i></div>
+        <div class="stat-value">{{ stats.open_reports }}</div>
+        <div class="stat-label">דיווחים פתוחים</div>
+    </div>
+</div>
+
+<!-- System Status -->
+<div class="status-bar animate-slide-up" style="margin-bottom: var(--space-md);">
+    <div class="status-item">
+        <i class="bi bi-airplane"></i>
+        <span>מצב חופשה</span>
+        {% if vacation_active %}
+        <span class="status-dot status-active"></span>
+        <span class="status-label status-label-active">פעיל</span>
+        {% else %}
+        <span class="status-dot status-inactive"></span>
+        <span class="status-label status-label-inactive">כבוי</span>
+        {% endif %}
+    </div>
+    <div class="status-divider"></div>
+    <div class="status-item">
+        <i class="bi bi-calendar-check"></i>
+        <span>יומן Google</span>
+        {% if gcal_connected %}
+        <span class="status-dot status-active"></span>
+        <span class="status-label status-label-active">מחובר</span>
+        {% elif gcal_auth_invalid %}
+        <span class="status-dot status-warning"></span>
+        <a href="{{ url_for('google_calendar') }}" class="status-label status-label-warning"
+           title="חיבור לא תקף — לחצו לחיבור מחדש">חיבור לא תקף</a>
+        {% else %}
+        <span class="status-dot status-inactive"></span>
+        <span class="status-label status-label-inactive">לא מחובר</span>
+        {% endif %}
+    </div>
+</div>
+
+<!-- Active Live Chats -->
+{% if active_live_chats %}
+<div class="card animate-slide-up stagger-3" style="margin-bottom: var(--space-sm);">
+    <div class="card-header">
+        <span><i class="bi bi-headset"></i> שיחות חיות פעילות</span>
+    </div>
+    <div class="card-body">
+        <div class="list-group">
+            {% for lc in active_live_chats %}
+            <div class="list-group-item">
+                <div class="d-flex justify-between align-center">
+                    <div>
+                        <span class="fw-semibold">{{ (lc.username or lc.user_id)|mask_name }}</span>{% set _note_user_id = lc.user_id %}{% include "partials/user_note_icon.html" %}
+                        <br><span class="text-small text-muted" title="{{ lc.started_at|il_datetime }}">התחילה: {{ lc.started_at|relative_time }}</span>
+                    </div>
+                    <div class="d-flex gap-sm align-center">
+                        <a href="/live-chat/{{ lc.user_id|urlencode }}" class="btn btn-primary btn-sm">
+                            <i class="bi bi-headset"></i> כנס לשיחה
+                        </a>
+                        <form method="POST" action="/live-chat/{{ lc.user_id|urlencode }}/end" style="margin: 0;">
+                            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                            <button type="submit" class="btn btn-danger btn-sm"
+                                    onclick="return confirm('להחזיר את השיחה לבוט?')">
+                                <i class="bi bi-robot"></i> החזר לבוט
+                            </button>
+                        </form>
+                    </div>
+                </div>
+            </div>
+            {% endfor %}
+        </div>
+    </div>
+</div>
+{% endif %}
+
+<!-- Recent Items -->
+<div class="content-two-col">
+    <!-- Recent Agent Requests -->
+    <div class="card animate-slide-up stagger-3">
+        <div class="card-header">
+            <span><i class="bi bi-bell"></i> בקשות נציג אחרונות</span>
+            <a href="/requests" class="btn btn-secondary btn-sm">הצג הכל</a>
+        </div>
+        <div class="card-body">
+            {% if recent_requests %}
+            <div class="list-group">
+                {% for req in recent_requests %}
+                <div class="list-group-item">
+                    <div class="d-flex justify-between align-center">
+                        <div>
+                            <span class="fw-semibold">{{ req.username|mask_name }}</span>{% set _note_user_id = req.user_id %}{% include "partials/user_note_icon.html" %}
+                            {% if req.telegram_username %}
+                            <br>
+                            <a class="text-small" href="{% if is_demo_session %}#{% else %}https://t.me/{{ req.telegram_username }}{% endif %}" target="_blank" rel="noopener">
+                                @{{ req.telegram_username | mask_username }}
+                            </a>
+                            {% endif %}
+                            <br><span class="text-small text-muted" title="{{ req.created_at|il_datetime }}">{{ req.created_at|relative_time }}</span>
+                        </div>
+                        <div class="d-flex gap-sm align-center">
+                            <a href="/live-chat/{{ req.user_id|urlencode }}" class="btn btn-primary btn-sm">
+                                <i class="bi bi-headset"></i>
+                            </a>
+                            <span class="badge badge-warning">ממתין</span>
+                        </div>
+                    </div>
+                </div>
+                {% endfor %}
+            </div>
+            {% else %}
+            <div class="empty-state">
+                <i class="bi bi-check-circle"></i>
+                <p>אין בקשות ממתינות.</p>
+            </div>
+            {% endif %}
+        </div>
+    </div>
+
+    <!-- Recent Appointments — תורים חדשים (owner_seen=0) — תואם לספירה ב-stat card -->
+    <div class="card animate-slide-up stagger-4">
+        <div class="card-header">
+            <span><i class="bi bi-calendar-check"></i> תורים חדשים</span>
+            <a href="/appointments" class="btn btn-secondary btn-sm">הצג הכל</a>
+        </div>
+        <div class="card-body">
+            {% if recent_appointments %}
+            <div class="list-group">
+                {% for appt in recent_appointments %}
+                <div class="list-group-item">
+                    <div class="d-flex justify-between align-center" style="margin-bottom: 0.25rem;">
+                        <span class="fw-semibold">{{ appt.username|mask_name }}</span>{% set _note_user_id = appt.user_id %}{% include "partials/user_note_icon.html" %}
+                        {% if appt.status == 'confirmed' %}
+                        <span class="badge badge-success">{{ appt.status|translate_status }}</span>
+                        {% elif appt.status == 'pending' %}
+                        <span class="badge badge-warning">{{ appt.status|translate_status }}</span>
+                        {% else %}
+                        <span class="badge badge-muted">{{ appt.status|translate_status }}</span>
+                        {% endif %}
+                    </div>
+                    {% if appt.telegram_username %}
+                    <a class="text-small" href="{% if is_demo_session %}#{% else %}https://t.me/{{ appt.telegram_username }}{% endif %}" target="_blank" rel="noopener">
+                        @{{ appt.telegram_username | mask_username }}
+                    </a>
+                    <br>
+                    {% endif %}
+                    <span class="text-small text-muted">{{ appt.service }} — {{ appt.preferred_date }} בשעה {{ appt.preferred_time }}</span>
+                </div>
+                {% endfor %}
+            </div>
+            {% else %}
+            <div class="empty-state">
+                <i class="bi bi-check-circle"></i>
+                <p>אין תורים חדשים.</p>
+            </div>
+            {% endif %}
+        </div>
+    </div>
+</div>
+
+<!-- Knowledge Gaps -->
+<div class="card animate-slide-up stagger-5" style="margin-top: var(--space-sm);">
+    <div class="card-header">
+        <span><i class="bi bi-question-circle"></i> פערי ידע — שאלות ללא מענה</span>
+        <a href="/knowledge-gaps" class="btn btn-secondary btn-sm">הצג הכל</a>
+    </div>
+    <div class="card-body">
+        {% if recent_gaps %}
+        <div class="list-group">
+            {% for gap in recent_gaps %}
+            <div class="list-group-item">
+                <div class="d-flex justify-between align-center">
+                    <div>
+                        <span class="fw-semibold">{{ (gap.username or gap.user_id)|mask_name }}</span>{% set _note_user_id = gap.user_id %}{% include "partials/user_note_icon.html" %}
+                        <br><span style="color: var(--text-secondary);">{{ gap.question }}</span>
+                        <br><span class="text-small text-muted" title="{{ gap.created_at|il_datetime }}">{{ gap.created_at|relative_time }}</span>
+                    </div>
+                    <a href="/kb/add?question={{ gap.question|urlencode }}&gap_id={{ gap.id }}"
+                       class="btn btn-primary btn-sm">
+                        <i class="bi bi-plus-circle"></i> הוסף תשובה
+                    </a>
+                </div>
+            </div>
+            {% endfor %}
+        </div>
+        {% else %}
+        <div class="empty-state">
+            <i class="bi bi-check-circle"></i>
+            <p>אין שאלות ללא מענה. הבוט עונה על הכל!</p>
+        </div>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}
