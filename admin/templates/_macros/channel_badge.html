@@ -1,0 +1,30 @@
+{#
+  Macro להצגת תווית ערוץ הודעות (channel badge).
+
+  שימוש:
+    {% from "_macros/channel_badge.html" import channel_badge %}
+    {{ channel_badge(c.channel) }}
+
+  ערוצים נתמכים:
+    - telegram   → Telegram (כחול)
+    - whatsapp   → WhatsApp (ירוק)
+    - meta_ig    → Instagram (סגול)
+    - meta_msg   → Messenger (כחול-בהיר)
+    - כל ערך אחר → "אחר" (אפור) — שכבת הגנה, לא אמור לקרות
+
+  להוספת ערוץ חדש: פשוט להוסיף elif נוסף כאן וכל הפאנל מתעדכן.
+#}
+
+{% macro channel_badge(channel) -%}
+  {%- if channel == 'whatsapp' -%}
+    <span class="badge badge-success"><i class="bi bi-whatsapp"></i> WhatsApp</span>
+  {%- elif channel == 'meta_ig' -%}
+    <span class="badge" style="background:#E1306C;color:#fff;"><i class="bi bi-instagram"></i> Instagram</span>
+  {%- elif channel == 'meta_msg' -%}
+    <span class="badge" style="background:#0084FF;color:#fff;"><i class="bi bi-messenger"></i> Messenger</span>
+  {%- elif channel == 'telegram' -%}
+    <span class="badge badge-info"><i class="bi bi-telegram"></i> Telegram</span>
+  {%- else -%}
+    <span class="badge badge-secondary">{{ channel or 'לא ידוע' }}</span>
+  {%- endif -%}
+{%- endmacro %}
