@@ -3126,7 +3126,10 @@ self.addEventListener('notificationclick', (event) => {
         הערכים נצרכים בזמן-ריצה דרך config.get_business_config().
         """
         if request.method == "POST":
-            phone = request.form.get("business_phone", "").strip()[:50]
+            # נרמול טלפון ישראלי: מקבלים גם 0501234567 → +972501234567,
+            # כדי ש-vCard / wa.me / ICS יקבלו פורמט בינלאומי תקין.
+            from utils.phone import to_israeli_e164
+            phone = to_israeli_e164(request.form.get("business_phone", "").strip())[:50]
             address = request.form.get("business_address", "").strip()[:300]
             website = request.form.get("business_website", "").strip()[:300]
             db.update_business_identity(
