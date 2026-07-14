@@ -905,7 +905,7 @@
     {# בועת "צ'אט מתחזה" לגולש דמו — מדמה הודעת ווטסאפ נכנסת ומובילה לשיחה אמיתית. #}
     {% if is_demo_session and demo_cta_whatsapp %}
     {% set aicw_wa_phone = demo_cta_whatsapp|replace('+', '')|replace('-', '')|replace(' ', '') %}
-    {% set aicw_wa_text = 'היי, ראיתי את הדמו של AI Business Chatbot ואני מעוניין בשבוע הניסיון החינם' %}
+    {% set aicw_wa_text = 'היי, ראיתי את הדמו של AI Business Chatbot ואני מעוניין ב-30 ימי הניסיון החינם' %}
     {% set aicw_wa_link = 'https://wa.me/' ~ aicw_wa_phone ~ '?text=' ~ aicw_wa_text|urlencode %}
     <div class="aicw" id="aicw-widget" dir="rtl"
          data-wa-link="{{ aicw_wa_link }}"
@@ -939,7 +939,7 @@
                     <span></span><span></span><span></span>
                 </div>
                 <div class="aicw-message" id="aicw-message" aria-hidden="true">
-                    היי 👋 רוצה לראות איך זה ייראה לעסק שלך? שבוע ניסיון חינם, בלי כרטיס אשראי
+                    היי 👋 רוצה לראות איך זה ייראה לעסק שלך? 30 ימי ניסיון חינם, בלי כרטיס אשראי
                 </div>
             </div>
             <a class="aicw-cta" id="aicw-cta" href="{{ aicw_wa_link }}" target="_blank" rel="noopener">
