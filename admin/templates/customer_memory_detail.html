@@ -1,0 +1,57 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="page-header animate-fade-in">
+    <h1>
+        <i class="bi bi-person-circle"></i>
+        זיכרון על {{ (username or user_id) | mask_name }}
+    </h1>
+    <a href="/customer-memory" class="btn btn-secondary btn-sm" style="margin-right: auto;">
+        <i class="bi bi-arrow-right"></i> חזרה לרשימה
+    </a>
+</div>
+
+{% set any_facts = namespace(found=false) %}
+{% for fact_type in fact_type_order %}
+    {% if groups[fact_type] %}
+    {% set any_facts.found = true %}
+    <div class="card animate-slide-up" style="margin-bottom: 1rem;">
+        <div class="card-header">
+            <h3>{{ fact_type|translate_fact_type }} ({{ groups[fact_type]|length }})</h3>
+        </div>
+        <div class="card-body" style="padding: 0;">
+            <div class="table-wrapper">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>תוכן</th>
+                            <th>סטטוס</th>
+                            <th>בטחון</th>
+                            <th>נאמר</th>
+                            <th>אומת לאחרונה</th>
+                            <th>פעולות</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for fact in groups[fact_type] %}
+                        {% include "partials/customer_fact_row.html" %}
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+    {% endif %}
+{% endfor %}
+
+{% if not any_facts.found %}
+<div class="card animate-slide-up">
+    <div class="card-body">
+        <div class="empty-state">
+            <i class="bi bi-journal-x"></i>
+            <p>אין עדיין עובדות על הלקוחה הזו.</p>
+        </div>
+    </div>
+</div>
+{% endif %}
+{% endblock %}
