@@ -32,7 +32,7 @@
 | `delete_user_data` | מכסה את כל 14 הטבלאות עם `user_id` + referrals (שני כיוונים) + broadcast_deliveries + users | ✅ הכיסוי שלם. `blocked_users` מושמט בכוונה (legal hold — ראה שורה במטריצה). `developer_reports` אין user_id ולכן לא רלוונטי. |
 | `get_user_data_summary` | (תוקן) מחזיר counts לכל הטבלאות הרלוונטיות | ✅ תוקן: נוספו counts ל-conversations, conversation_summaries, lead_followups (עם פילוח status), referrals (שני כיוונים), referral_codes, credits, unanswered_questions, response_pages, broadcast_deliveries, user_identities. תוכן חופשי (user_notes.note, lead_followups.analysis_json) עדיין לא נחשף — ממתין להחלטה משפטית. |
 | `purge_old_data` | מכסה: conversations, appointments, live_chats, conversation_summaries | ❗️לא מכסה: `lead_followups`, `agent_requests`, `unanswered_questions`, `response_pages`, `broadcast_deliveries`, `referrals` (completed), `credits` (expired). |
-| `consent_ledger` | לא קיים | ❗️consent נשמר רק ב-`users.consent_given_at` ונמחק יחד עם המשתמש ב-`/forget`. |
+| `consent_ledger` | לא קיים | ❗️consent נשמר רק ב-`users.consent_given_at` ונמחק יחד עם המשתמש ב-`/forget`. כנ"ל `users.disclaimer_sent_at` (סימון timestamp שהודעת הפתיחה המשפטית נשלחה — implied consent; לא PII רגיש) — נמחק עם שורת המשתמש. |
 | `admin_audit_log` | רק stdout (`logger.info("AUDIT \| ...")`) | ❗️זה הולך ל-Render logs ול-Sentry. אין retention משלנו עליו. |
 
 ---

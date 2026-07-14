@@ -269,6 +269,46 @@ def get_business_config() -> BusinessConfig:
         website=website or _mod.BUSINESS_WEBSITE,
     )
 
+
+def build_intro_disclaimer(html_link: bool = False) -> str:
+    """הודעת פתיחה משפטית (implied consent) לפונה חדש — נוסח מקובע, עם
+    שם העסק והקישור למסמכים דינמיים (פר-tenant, בזמן ריצה).
+
+    html_link=True  → קישור כ-<a> ו-escape לשם (טלגרם, parse_mode=HTML).
+    html_link=False → URL גולמי (WhatsApp, בלי HTML).
+
+    כש-ADMIN_URL לא מוגדר (legal_page_url מחזיר '') — נוסח חלופי בלי
+    קישור, כדי לא לשבור את ההודעה.
+    """
+    import html as _html
+    from public_urls import legal_page_url  # ייבוא עצל — מונע מעגל ייבוא
+
+    name = get_business_config().name
+    url = legal_page_url()
+
+    if html_link:
+        name_disp = _html.escape(name)
+        docs = (
+            "תנאי השימוש ומדיניות הפרטיות זמינים "
+            f'<a href="{_html.escape(url)}">כאן</a>'
+            if url else
+            "תנאי השימוש ומדיניות הפרטיות זמינים אצל בעל העסק"
+        )
+    else:
+        name_disp = name
+        docs = (
+            f"תנאי השימוש ומדיניות הפרטיות זמינים כאן: {url}"
+            if url else
+            "תנאי השימוש ומדיניות הפרטיות זמינים אצל בעל העסק"
+        )
+
+    return (
+        f"היי 👋 אתם מדברים עם הסוכן החכם של {name_disp}. "
+        f"{docs} — המשך השיחה מהווה אישור לתנאים ולמדיניות הפרטיות. "
+        "איך אפשר לעזור?"
+    )
+
+
 # ─── Telegram Bot Username (for QR code generation) ─────────────────────────
 TELEGRAM_BOT_USERNAME = os.getenv("TELEGRAM_BOT_USERNAME", "")
 

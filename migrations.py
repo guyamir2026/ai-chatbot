@@ -734,6 +734,12 @@ def run_migrations(conn) -> None:
     _ensure_column(conn, "users", "consent_given_at", "TEXT DEFAULT NULL")
     _ensure_column(conn, "users", "consent_version", "INTEGER NOT NULL DEFAULT 0")
 
+    # ─── disclaimer_sent_at — הודעת פתיחה משפטית (implied consent) ────────
+    # תאריך/שעה שבה נשלחה לראשונה הודעת הפתיחה עם קישור לתנאי השימוש
+    # ומדיניות הפרטיות. NULL = טרם נשלחה. משמש כדי לשלוח את ה-disclaimer
+    # פעם אחת בלבד (בטלגרם — /start יכול להיקרא שוב ושוב).
+    _ensure_column(conn, "users", "disclaimer_sent_at", "TEXT DEFAULT NULL")
+
     # ─── broadcast_message_recipients — רשימת נמענים לקהל מותאם אישית ─────
     # נשמר כדי לאפשר תצוגת רשימת לקוחות שנכללו בשידור גם אחרי שהמסננים
     # השתנו (למשל לקוח שכבר לא עומד בקריטריון "לא פעיל מעל X ימים").

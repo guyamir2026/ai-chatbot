@@ -700,7 +700,7 @@ def _whatsapp_webhook_impl():
         history = db.get_conversation_history(from_number, limit=1)
         sent_welcome = False
         if not history:
-            _send_welcome_message(from_number)
+            _send_welcome_message(from_number, is_first_contact=True)
             sent_welcome = True
             db.save_message(
                 from_number, profile_name or from_number, "assistant",
@@ -862,14 +862,20 @@ def _whatsapp_webhook_impl():
     return "", 200
 
 
-def _send_welcome_message(to_number: str) -> None:
+def _send_welcome_message(to_number: str, is_first_contact: bool = False) -> None:
     """שליחת הודעת פתיחה עם Quick Reply כפתורים (או fallback טקסטואלי).
 
     Quick Reply ב-session מוגבל ל-3 כפתורים — מציגים את השלושה הפופולריים.
+    is_first_contact=True → הודעת פתיחה משפטית (implied consent) לפונה
+    ראשון, במקום ברכת ה-welcome. הזיהוי 'פונה ראשון' נעשה אצל הקורא לפי
+    היעדר היסטוריית שיחה (אחרי הודעה זו נשמרת היסטוריה, כך שלא יחזור).
     """
     returning = db.is_returning_customer(to_number)
     booking_on = db.is_booking_enabled()
-    if returning:
+    if is_first_contact:
+        from ai_chatbot.config import build_intro_disclaimer
+        body = build_intro_disclaimer(html_link=False)
+    elif returning:
         body = (
             f"😊 שמחים לראות אותך שוב ב-{get_business_config().name}!\n"
             "איך אפשר לעזור הפעם?"
@@ -893,7 +899,10 @@ def _send_welcome_message(to_number: str) -> None:
         # friendly_name שונה ללקוח חוזר/חדש — כי ה-body שונה וה-template נקאש.
         # כשקביעת תורים כבויה — כפתור התור מוחלף במיקום, ומפתח ה-cache שונה
         # (_nobook) כדי לא לשרת template מקאש עם כפתור התור.
-        base_name = "welcome_menu_returning" if returning else "welcome_menu_new"
+        if is_first_contact:
+            base_name = "welcome_menu_intro"
+        else:
+            base_name = "welcome_menu_returning" if returning else "welcome_menu_new"
         if booking_on:
             template_name = base_name
             buttons = [

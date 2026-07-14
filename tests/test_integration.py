@@ -111,9 +111,10 @@ class TestFullBotConversation:
                 stack.enter_context(p)
             await start_command(update, context)
 
-        # ודא הודעת ברוכים הבאים
+        # פונה ראשון — מקבל את הודעת הפתיחה המשפטית (implied consent),
+        # שמחליפה את ברכת הפתיחה הרגילה
         reply_text = update.message.reply_text.call_args[0][0]
-        assert "ברוכים הבאים" in reply_text
+        assert "המשך השיחה מהווה אישור" in reply_text
 
         # ודא שההודעות נשמרו ב-DB
         history = real_db.get_conversation_history(str(user_id), limit=10)
@@ -278,6 +279,11 @@ class TestFullBotConversation:
         appts = real_db.get_appointments()
         if appts:
             real_db.update_appointment_status(appts[0]["id"], "confirmed")
+
+        # ה-disclaimer כבר נשלח — בודקים ספציפית את ברכת הלקוח החוזר, לא את
+        # הודעת הפתיחה המשפטית (שגוברת עליה בפנייה הראשונה בלבד)
+        real_db.upsert_user(str(user_id), "Test User", channel="telegram")
+        real_db.mark_disclaimer_sent(str(user_id))
 
         update = _make_update(user_id=user_id)
         context = _make_context()

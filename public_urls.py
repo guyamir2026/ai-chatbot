@@ -43,6 +43,18 @@ def public_ics_url(page_id: str) -> str:
     return f"{_base_url()}{_tenant_prefix()}/ics/{page_id}"
 
 
+def legal_page_url() -> str:
+    """URL של עמוד המסמכים המשפטיים (/legal) עבור ה-tenant הנוכחי.
+
+    מחזיר '' כש-ADMIN_URL לא מוגדר — הקורא (הודעת הפתיחה) שולח אז בלי
+    קישור, כדי לא לשבור.
+    """
+    base = _base_url()
+    if not base:
+        return ""
+    return f"{base}{_tenant_prefix()}/legal"
+
+
 def whatsapp_status_callback_url() -> Optional[str]:
     """‏URL ל-status callbacks של Twilio עבור ה-tenant הנוכחי.
 

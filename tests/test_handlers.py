@@ -442,6 +442,58 @@ class TestStartCommand:
         assert "ברוכים הבאים" in call_text
 
     @pytest.mark.asyncio
+    async def test_first_contact_shows_disclaimer(self, db):
+        """פונה חדש (טרם נשלח disclaimer) מקבל את הודעת הפתיחה המשפטית
+        במקום ברכת הפתיחה, ומסומן כדי לא לחזור עליה."""
+        from bot.handlers import start_command
+        update = _make_update()
+        context = _make_context()
+
+        with ExitStack() as stack:
+            for p in _handler_patches():
+                stack.enter_context(p)
+            mock_db = stack.enter_context(patch("bot.handlers.db"))
+            mock_db.ensure_user_subscribed = MagicMock()
+            mock_db.save_message = MagicMock()
+            mock_db.register_referral = MagicMock(return_value=False)
+            mock_db.is_returning_customer = MagicMock(return_value=False)
+            mock_db.has_consent = MagicMock(return_value=True)
+            mock_db.disclaimer_sent = MagicMock(return_value=False)
+            mock_db.mark_disclaimer_sent = MagicMock()
+
+            await start_command(update, context)
+
+        call_text = update.message.reply_text.call_args[0][0]
+        assert "המשך השיחה מהווה אישור" in call_text
+        mock_db.mark_disclaimer_sent.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_disclaimer_not_repeated(self, db):
+        """פונה שכבר קיבל disclaimer מקבל ברכה רגילה — בלי disclaimer, בלי mark."""
+        from bot.handlers import start_command
+        update = _make_update()
+        context = _make_context()
+
+        with ExitStack() as stack:
+            for p in _handler_patches():
+                stack.enter_context(p)
+            mock_db = stack.enter_context(patch("bot.handlers.db"))
+            mock_db.ensure_user_subscribed = MagicMock()
+            mock_db.save_message = MagicMock()
+            mock_db.register_referral = MagicMock(return_value=False)
+            mock_db.is_returning_customer = MagicMock(return_value=False)
+            mock_db.has_consent = MagicMock(return_value=True)
+            mock_db.disclaimer_sent = MagicMock(return_value=True)
+            mock_db.mark_disclaimer_sent = MagicMock()
+
+            await start_command(update, context)
+
+        call_text = update.message.reply_text.call_args[0][0]
+        assert "המשך השיחה מהווה אישור" not in call_text
+        assert "ברוכים הבאים" in call_text
+        mock_db.mark_disclaimer_sent.assert_not_called()
+
+    @pytest.mark.asyncio
     async def test_referral_code_bonus_text(self, db):
         from bot.handlers import start_command
         update = _make_update()
