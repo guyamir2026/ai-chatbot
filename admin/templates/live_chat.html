@@ -1,0 +1,107 @@
+{% extends "base.html" %}
+{% from "_macros/channel_badge.html" import channel_badge %}
+
+{% block content %}
+<div class="page-header animate-fade-in">
+    <h1><i class="bi bi-headset"></i> שיחה חיה — {{ (username or user_id)|mask_name }} {% set _note_user_id = user_id %}{% include "partials/user_note_icon.html" %}
+        {% if live_session %}{{ channel_badge(live_session.get('channel') or 'telegram') }}{% endif %}
+    </h1>
+    <div class="d-flex gap-sm">
+        {% if live_session %}
+        <form method="POST" action="/live-chat/{{ user_id|urlencode }}/end">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <button type="submit" class="btn btn-danger btn-sm"
+                    onclick="return confirm('להחזיר את השיחה לבוט?')">
+                <i class="bi bi-robot"></i> סיום והחזרה לבוט
+            </button>
+        </form>
+        {% else %}
+        <form method="POST" action="/live-chat/{{ user_id|urlencode }}/start">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <button type="submit" class="btn btn-primary btn-sm">
+                <i class="bi bi-headset"></i> התחל שיחה חיה
+            </button>
+        </form>
+        {% endif %}
+        <a href="/conversations?user_id={{ user_id|urlencode }}" class="btn btn-secondary btn-sm">
+            <i class="bi bi-arrow-right"></i> חזרה לשיחות
+        </a>
+    </div>
+</div>
+
+{% if live_session %}
+<div class="alert alert-success">
+    <span><i class="bi bi-headset"></i> שיחה חיה פעילה — הבוט מושהה. הודעות הלקוח יופיעו כאן בזמן אמת.</span>
+</div>
+{% else %}
+<div class="alert alert-info">
+    <span><i class="bi bi-info-circle"></i> השיחה מנוהלת על ידי הבוט. לחצו "התחל שיחה חיה" כדי להשתלט על השיחה.</span>
+</div>
+{% endif %}
+
+<div class="live-chat-container card animate-slide-up">
+    <!-- Messages area with auto-polling -->
+    <div class="live-chat-messages" id="live-chat-messages"
+         {% if live_session %}
+         hx-get="/api/live-chat/{{ user_id|urlencode }}/messages"
+         hx-trigger="every 3s"
+         hx-swap="innerHTML"
+         hx-target="#live-chat-messages"
+         {% endif %}>
+        {% include "partials/live_chat_messages.html" %}
+    </div>
+
+    {% if live_session %}
+    <!-- Message input -->
+    <div class="live-chat-input">
+        <form hx-post="/live-chat/{{ user_id|urlencode }}/send"
+              hx-target="#live-chat-messages"
+              hx-swap="innerHTML"
+              hx-sync="#live-chat-messages:replace"
+              hx-on::after-request="if(event.detail.successful) this.reset()"
+              class="live-chat-form">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <input type="text" name="message" class="form-input"
+                   placeholder="כתבו הודעה..."
+                   autocomplete="off"
+                   autofocus
+                   required>
+            <button type="submit" class="btn btn-primary">
+                <i class="bi bi-send"></i> שלח
+            </button>
+        </form>
+    </div>
+    {% endif %}
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    var _wasNearBottom = true;
+
+    function scrollToBottom() {
+        var c = document.getElementById('live-chat-messages');
+        if (c) c.scrollTop = c.scrollHeight;
+    }
+    function checkNearBottom() {
+        var c = document.getElementById('live-chat-messages');
+        if (!c) return true;
+        return c.scrollHeight - c.scrollTop - c.clientHeight < 80;
+    }
+    // Scroll on initial page load
+    scrollToBottom();
+
+    // שמירת מצב גלילה רגע לפני ה-swap — מדויק יותר מ-beforeRequest
+    document.body.addEventListener('htmx:beforeSwap', function(e) {
+        if (e.detail.target && e.detail.target.id === 'live-chat-messages') {
+            _wasNearBottom = checkNearBottom();
+        }
+    });
+    // גלילה אוטומטית רק אם המשתמש היה קרוב לתחתית
+    document.body.addEventListener('htmx:afterSwap', function(e) {
+        if (e.detail.target && e.detail.target.id === 'live-chat-messages') {
+            if (_wasNearBottom) scrollToBottom();
+        }
+    });
+</script>
+{% endblock %}
