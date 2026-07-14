@@ -1,0 +1,1050 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<script>
+/* מניעת הבזק ערכת נושא שגויה בטעינה — רץ לפני ה-body.
+   מאמת את הערך מ-localStorage; ערך לא חוקי (למשל "blue" מ-deploy ישן)
+   מנוקה מיידית כדי שלא יחזור על עצמו בכל טעינה. */
+(function(){
+    var VALID = ['dark', 'light', 'light-warm', 'light-kibbutz'];
+    var t;
+    try { t = localStorage.getItem('admin-theme'); } catch (e) { return; }
+    if (t === null) return; /* אין preference שמור — נופלים ל-:root (dark) */
+    if (VALID.indexOf(t) === -1) {
+        try { localStorage.removeItem('admin-theme'); } catch (e) {}
+        return;
+    }
+    document.documentElement.setAttribute('data-theme', t);
+})();
+</script>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="csrf-token" content="{{ csrf_token() }}">
+    <title>{{ business_name }} — פאנל ניהול</title>
+
+    {# ── PWA — Add to Home Screen / Install as App ────────────────── #}
+    <link rel="manifest" href="{{ url_for('pwa_manifest') }}">
+    <meta name="theme-color" content="#2563EB">
+    <meta name="application-name" content="{{ business_name }}">
+    {# iOS — תמיכה ב-fullscreen ו-Add to Home Screen מ-Safari #}
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="{{ business_name }}">
+    <link rel="apple-touch-icon" sizes="180x180" href="{{ url_for('static', filename='icons/icon-180.png') }}">
+    <link rel="icon" type="image/png" sizes="192x192" href="{{ url_for('static', filename='icons/icon-192.png') }}">
+
+    <!-- Google Fonts: Assistant + Rubik (Dark) · Frank Ruhl Libre + Heebo (Light editorial) -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Assistant:wght@700;800&family=Frank+Ruhl+Libre:wght@500;700;900&family=Heebo:wght@300;400;500;600;700&family=Rubik:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <!-- Bootstrap Icons -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.0/font/bootstrap-icons.css" rel="stylesheet" crossorigin="anonymous">
+    <!-- Design System CSS -->
+    <link href="{{ url_for('static', filename='css/style.css') }}" rel="stylesheet">
+    <!-- HTMX -->
+    <script src="https://unpkg.com/htmx.org@2.0.4" crossorigin="anonymous"></script>
+</head>
+<body hx-headers='{"X-CSRFToken": "{{ csrf_token() }}"}'>
+    <!-- Mobile Top Bar -->
+    <div class="mobile-topbar">
+        <button class="hamburger" onclick="toggleSidebar()" aria-label="תפריט">
+            <i class="bi bi-list"></i>
+        </button>
+        <span class="brand-name">{{ business_name }}</span>
+        <div style="width:32px"></div>
+    </div>
+
+    <!-- Sidebar Overlay (mobile) -->
+    <div class="sidebar-overlay" id="sidebarOverlay" onclick="toggleSidebar()"></div>
+
+    <div class="app-layout">
+        <!-- Sidebar -->
+        <nav class="sidebar" id="sidebar">
+            <div class="sidebar-brand">
+                <div class="brand-icon"><i class="bi bi-robot"></i></div>
+                <span class="brand-name">{{ business_name }}</span>
+            </div>
+
+            <ul class="sidebar-nav">
+                <li>
+                    <a href="/" class="{% if request.endpoint == 'dashboard' %}active{% endif %}">
+                        <i class="bi bi-speedometer2"></i> לוח בקרה
+                    </a>
+                </li>
+                <li>
+                    <a href="/kb" class="{% if request.endpoint in ['kb_list', 'kb_add', 'kb_edit'] %}active{% endif %}">
+                        <i class="bi bi-book"></i> בסיס ידע
+                    </a>
+                </li>
+                <li>
+                    <a href="/conversations" class="{% if request.endpoint in ['conversations', 'live_chat'] %}active{% endif %}">
+                        <i class="bi bi-chat-dots"></i> שיחות
+                        <span id="live-chat-badge" class="nav-badge" style="display:none;"></span>
+                    </a>
+                </li>
+                <li>
+                    <a href="/requests" class="{% if request.endpoint == 'agent_requests' %}active{% endif %}">
+                        <i class="bi bi-bell"></i> בקשות נציג
+                        <span id="request-badge" class="nav-badge" style="display:none;"></span>
+                    </a>
+                </li>
+                <li>
+                    <a href="/appointments" class="{% if request.endpoint == 'appointments' %}active{% endif %}">
+                        <i class="bi bi-calendar-check"></i> תורים
+                        <span id="appointments-badge" class="nav-badge" style="display:none;"></span>
+                    </a>
+                </li>
+                {# עמוד שירותים הוסתר — משך התור מחושב לפי ברירת המחדל הגלובלית
+                   בעמוד "תורים". ה-route עדיין פעיל למקרה שנרצה לחזור. #}
+                {# <li>
+                    <a href="/services" class="{% if request.endpoint == 'services' %}active{% endif %}">
+                        <i class="bi bi-scissors"></i> שירותים
+                    </a>
+                </li> #}
+                <li>
+                    <a href="/business-hours" class="{% if request.endpoint == 'business_hours' %}active{% endif %}">
+                        <i class="bi bi-clock"></i> שעות פעילות
+                    </a>
+                </li>
+                {# Phase 4 — feature-gated sidebar items.
+                   has_feature(...) == True  → הלינק מופיע פה (במיקום טבעי)
+                   has_feature(...) == False → לא מופיע פה; מופיע בקבוצת
+                                               הנעולים אחרי "החבילה שלי". #}
+                {% from "_macros/feature_lock.html" import sidebar_link with context %}
+                {% if has_feature("broadcast") %}
+                <li>
+                    {{ sidebar_link("broadcast", "/broadcast", "bi-megaphone",
+                                     "שליחת הודעות",
+                                     active_endpoints=["broadcast"]) }}
+                </li>
+                <li>
+                    {{ sidebar_link("broadcast", "/broadcast/templates",
+                                     "bi-whatsapp", "תבניות WhatsApp",
+                                     active_endpoints=["broadcast_templates"]) }}
+                </li>
+                <li>
+                    {{ sidebar_link("broadcast", "/broadcast/campaigns",
+                                     "bi-send", "קמפיינים יזומים",
+                                     active_endpoints=["broadcast_campaigns_list",
+                                                       "broadcast_campaigns_new",
+                                                       "broadcast_campaigns_edit"]) }}
+                </li>
+                {% endif %}
+                {# Analytics של Broadcast הוטמע בעמוד אנליטיקות הראשי. #}
+                <li>
+                    <a href="/referrals" class="{% if request.endpoint == 'referrals' %}active{% endif %}">
+                        <i class="bi bi-people-fill"></i> הפניות
+                    </a>
+                </li>
+                {% if has_feature("followup_24h") %}
+                <li>
+                    {{ sidebar_link("followup_24h", "/followups",
+                                     "bi-arrow-repeat", "פולו-אפ לידים",
+                                     active_endpoints=["followups"]) }}
+                </li>
+                {% endif %}
+                <li>
+                    <a href="/customers" class="{% if request.endpoint in ['customers', 'customer_card'] %}active{% endif %}">
+                        <i class="bi bi-people"></i> לקוחות
+                    </a>
+                </li>
+                <li>
+                    <a href="/audience" class="{% if request.endpoint in ['audience'] %}active{% endif %}">
+                        <i class="bi bi-person-lock"></i> ניהול קהל
+                    </a>
+                </li>
+                <li>
+                    <a href="/vacation-mode" class="{% if request.endpoint == 'vacation_mode' %}active{% endif %}">
+                        <i class="bi bi-airplane"></i> מצב חופשה
+                        <span id="vacation-badge" class="nav-badge" style="display:none;"></span>
+                    </a>
+                </li>
+                <li>
+                    <a href="/knowledge-gaps" class="{% if request.endpoint == 'knowledge_gaps' %}active{% endif %}">
+                        <i class="bi bi-question-circle"></i> פערי ידע
+                        <span id="gaps-badge" class="nav-badge" style="display:none;"></span>
+                    </a>
+                </li>
+                <li>
+                    <a href="/analytics" class="{% if request.endpoint == 'analytics' %}active{% endif %}">
+                        <i class="bi bi-graph-up"></i> אנליטיקות
+                    </a>
+                </li>
+                <li>
+                    <a href="/bot-settings" class="{% if request.endpoint == 'bot_settings' %}active{% endif %}">
+                        <i class="bi bi-sliders"></i> הגדרות AI
+                    </a>
+                </li>
+                <li>
+                    <a href="/business-profile" class="{% if request.endpoint == 'business_profile_view' %}active{% endif %}">
+                        <i class="bi bi-buildings"></i> פרופיל עסק לזיכרון
+                    </a>
+                </li>
+                <li>
+                    <a href="/pending-facts" class="{% if request.endpoint == 'pending_facts' %}active{% endif %}">
+                        <i class="bi bi-clipboard-check"></i> תור אישור עובדות
+                        <span id="pending-facts-badge" class="nav-badge" style="display:none;"></span>
+                    </a>
+                </li>
+                <li>
+                    <a href="/customer-memory" class="{% if request.endpoint in ['customer_memory_list', 'customer_memory_detail'] %}active{% endif %}">
+                        <i class="bi bi-person-lines-fill"></i> זיכרון לקוחות
+                    </a>
+                </li>
+                <li>
+                    <a href="/google-calendar" class="{% if request.endpoint == 'google_calendar' %}active{% endif %}">
+                        <i class="bi bi-calendar-check"></i> Google Calendar
+                    </a>
+                </li>
+                <li>
+                    <a href="/bot-config" class="{% if request.endpoint == 'bot_config' %}active{% endif %}">
+                        <i class="bi bi-gear"></i> הגדרות תשתית
+                    </a>
+                </li>
+                <li>
+                    <a href="/qr-code" class="{% if request.endpoint in ['qr_code'] %}active{% endif %}">
+                        <i class="bi bi-qr-code"></i> QR Code
+                    </a>
+                </li>
+                <li>
+                    <a href="/branding" class="{% if request.endpoint == 'branding' %}active{% endif %}">
+                        <i class="bi bi-image"></i> מיתוג
+                    </a>
+                </li>
+                {% if has_feature("widget") %}
+                <li>
+                    {{ sidebar_link("widget", "/widget-embed", "bi-code-slash",
+                                     "הטמעה באתר",
+                                     active_endpoints=["widget_embed_admin"]) }}
+                </li>
+                {% endif %}
+                <li>
+                    <a href="/developer-report" class="{% if request.endpoint == 'developer_report' %}active{% endif %}">
+                        <i class="bi bi-bug"></i> דיווח למפתח
+                    </a>
+                </li>
+                {# עמוד "החבילה שלי" מוסתר בכוונה מהתפריט — מוצר חד-שכבתי (הכל דלוק).
+                   ה-route עצמו נשאר קיים אך לא מקושר. ראה plans_config.py #}
+                {# קבוצת פיצ'רים נעולים — מופיעים רק כשלא פעילים, ובסוף הסיידבר #}
+                {% if not has_feature("broadcast") %}
+                <li>
+                    {{ sidebar_link("broadcast", "/broadcast", "bi-megaphone",
+                                     "שליחת הודעות",
+                                     active_endpoints=["broadcast"]) }}
+                </li>
+                <li>
+                    {{ sidebar_link("broadcast", "/broadcast/templates",
+                                     "bi-whatsapp", "תבניות WhatsApp",
+                                     active_endpoints=["broadcast_templates"]) }}
+                </li>
+                <li>
+                    {{ sidebar_link("broadcast", "/broadcast/campaigns",
+                                     "bi-send", "קמפיינים יזומים",
+                                     active_endpoints=["broadcast_campaigns_list",
+                                                       "broadcast_campaigns_new",
+                                                       "broadcast_campaigns_edit"]) }}
+                </li>
+                {% endif %}
+                {% if not has_feature("followup_24h") %}
+                <li>
+                    {{ sidebar_link("followup_24h", "/followups",
+                                     "bi-arrow-repeat", "פולו-אפ לידים",
+                                     active_endpoints=["followups"]) }}
+                </li>
+                {% endif %}
+                {% if not has_feature("widget") %}
+                <li>
+                    {{ sidebar_link("widget", "/widget-embed", "bi-code-slash",
+                                     "הטמעה באתר",
+                                     active_endpoints=["widget_embed_admin"]) }}
+                </li>
+                {% endif %}
+            </ul>
+
+            <div class="sidebar-footer">
+                <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:0.5rem;padding:0 0.5rem;">
+                    <button class="theme-toggle" onclick="toggleTheme()" title="החלף ערכת נושא">
+                        <i class="bi" id="theme-icon"></i>
+                    </button>
+                </div>
+                <a href="/logout">
+                    <i class="bi bi-box-arrow-right"></i> התנתקות
+                </a>
+            </div>
+        </nav>
+
+        <!-- Main Content -->
+        <main class="main-content">
+            {# באנר דמו — מוצג רק לגולשים שנכנסו דרך /demo. #}
+            {% if is_demo_session %}
+            <div class="demo-banner" role="status">
+                <span class="demo-banner-icon" aria-hidden="true">🎬</span>
+                <span class="demo-banner-text">
+                    <strong>מצב דמו</strong> — הנתונים שאתה רואה הם דוגמה.
+                    השינויים שלך לא יישמרו.
+                </span>
+                {% if demo_cta_whatsapp %}
+                <a class="demo-banner-cta"
+                   href="https://wa.me/{{ demo_cta_whatsapp|replace('+', '')|replace('-', '')|replace(' ', '') }}?text=ראיתי את הדמו, מעוניין בפרטים"
+                   target="_blank" rel="noopener">
+                    רוצה אחד משלך? דברו איתנו ←
+                </a>
+                {% endif %}
+            </div>
+            {% endif %}
+
+            {# קונטיינר ל-toast של חסימות במצב דמו (HX-Retarget מצביע לכאן). #}
+            <div id="demo-toast-container" aria-live="polite"></div>
+
+            <!-- Flash Messages -->
+            <div id="flash-container">
+            {% with messages = get_flashed_messages(with_categories=true) %}
+            {% if messages %}
+                {% for category, message in messages %}
+                <div class="alert alert-{{ category }}">
+                    <span>{{ message }}</span>
+                    <button class="btn-close" onclick="this.parentElement.remove()" aria-label="סגור">&times;</button>
+                </div>
+                {% endfor %}
+            {% endif %}
+            {% endwith %}
+            </div>
+
+            <div id="rag-stale-banner" class="rag-stale-warning" {% if not rag_index_stale %}style="display:none;"{% endif %}>
+                <div>
+                    <strong>האינדקס לא מעודכן.</strong>
+                    שינוי בבסיס הידע עדיין לא משוקף בבוט — מומלץ לבנות מחדש את אינדקס ה‑RAG.
+                </div>
+                <form method="POST" action="/kb/rebuild">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    <button type="submit" class="btn btn-warning btn-sm"
+                            onclick="return confirm('לבנות מחדש את אינדקס ה-RAG? זה עשוי לקחת רגע.')">
+                        <i class="bi bi-arrow-clockwise"></i> בנייה מחדש
+                    </button>
+                </form>
+            </div>
+
+            {# באנר תקופת החסד הוסר — מוצר חד-שכבתי, אין חבילות/חיוב חסד להציג #}
+
+            {% block content %}{% endblock %}
+        </main>
+    </div>
+
+    <script>
+        // Sidebar toggle for mobile
+        function toggleSidebar() {
+            document.getElementById('sidebar').classList.toggle('open');
+            document.getElementById('sidebarOverlay').classList.toggle('active');
+        }
+
+        // Close sidebar on nav link click (mobile)
+        document.querySelectorAll('.sidebar-nav a').forEach(function(link) {
+            link.addEventListener('click', function() {
+                if (window.innerWidth <= 768) {
+                    toggleSidebar();
+                }
+            });
+        });
+
+        // ── התראות שיחה חיה — מעקב אחר הודעות חדשות ──
+        var _liveChatLastSeen = {};  // {user_id: last_message_at}
+        var _liveChatFirstPoll = true;
+        var _notificationPermission = (typeof Notification !== 'undefined') ? Notification.permission : 'denied';
+        // AudioContext יחיד למניעת דליפת משאבים
+        var _audioCtx = null;
+
+        // escape למניעת XSS בתוכן שמגיע מהשרת
+        function _escapeHtml(str) {
+            var div = document.createElement('div');
+            div.appendChild(document.createTextNode(str));
+            return div.innerHTML;
+        }
+
+        // חילוץ user_id מנתיב דף שיחה חיה (או null אם לא בדף שיחה חיה)
+        function _getLiveChatPageUserId() {
+            var match = window.location.pathname.match(/^\/live-chat\/([^/]+)/);
+            if (match && document.getElementById('live-chat-messages')) {
+                return match[1];
+            }
+            return null;
+        }
+
+        // בקשת הרשאת התראות בדפדפן
+        function requestNotificationPermission() {
+            if (typeof Notification !== 'undefined' && Notification.permission === 'default') {
+                Notification.requestPermission().then(function(perm) {
+                    _notificationPermission = perm;
+                });
+            }
+        }
+
+        /* פירמוט מספר טלפון ישראלי: +972XXXXXXXXX → 0XXXXXXXXX */
+        function formatPhone(s) {
+            if (typeof s === 'string' && s.startsWith('+972') && s.length >= 13) {
+                return '0' + s.substring(4);
+            }
+            return s || '';
+        }
+
+        // הצגת התראת דפדפן + צפצוף
+        function showLiveChatNotification(username, message) {
+            // צפצוף קצר דרך Web Audio API — שימוש חוזר ב-AudioContext יחיד
+            try {
+                if (!_audioCtx) {
+                    _audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+                }
+                var osc = _audioCtx.createOscillator();
+                var gain = _audioCtx.createGain();
+                osc.connect(gain);
+                gain.connect(_audioCtx.destination);
+                osc.frequency.value = 880;
+                gain.gain.value = 0.15;
+                osc.start();
+                osc.stop(_audioCtx.currentTime + 0.15);
+            } catch (e) {}
+
+            // התראת דפדפן (אם יש הרשאה)
+            if (_notificationPermission === 'granted') {
+                try {
+                    var n = new Notification('הודעה חדשה בשיחה חיה', {
+                        body: username + ': ' + (message || '').substring(0, 100),
+                        icon: '/static/favicon.ico',
+                        tag: 'live-chat-' + Date.now(),
+                    });
+                    n.onclick = function() {
+                        window.focus();
+                        n.close();
+                    };
+                    setTimeout(function() { n.close(); }, 8000);
+                } catch (e) {}
+            }
+
+            // טוסט בתוך הדף
+            _showInPageToast(username, message);
+        }
+
+        // התראה ויזואלית בתוך הדף — טוסט שנעלם אחרי 6 שניות
+        function _showInPageToast(username, message) {
+            var container = document.getElementById('live-chat-toast-container');
+            if (!container) {
+                container = document.createElement('div');
+                container.id = 'live-chat-toast-container';
+                container.style.cssText = 'position:fixed;top:1rem;left:1rem;z-index:9999;display:flex;flex-direction:column;gap:0.5rem;max-width:360px;';
+                document.body.appendChild(container);
+            }
+            var toast = document.createElement('div');
+            toast.style.cssText = 'background:var(--brand-blue,#2563eb);color:#fff;padding:0.75rem 1rem;border-radius:0.5rem;box-shadow:0 4px 12px rgba(0,0,0,0.15);cursor:pointer;animation:slideIn 0.3s ease;font-size:0.9rem;';
+            // שימוש ב-textContent למניעת XSS — בניית DOM בטוחה
+            var icon = document.createElement('i');
+            icon.className = 'bi bi-headset';
+            var strong = document.createElement('strong');
+            strong.appendChild(icon);
+            strong.appendChild(document.createTextNode(' ' + username));
+            toast.appendChild(strong);
+            toast.appendChild(document.createElement('br'));
+            toast.appendChild(document.createTextNode((message || '').substring(0, 80)));
+            toast.onclick = function() { toast.remove(); };
+            container.appendChild(toast);
+            setTimeout(function() {
+                toast.style.opacity = '0';
+                toast.style.transition = 'opacity 0.3s ease';
+                setTimeout(function() { toast.remove(); }, 300);
+            }, 6000);
+        }
+
+        // Auto-update notification badges
+        async function updateBadge() {
+            try {
+                var resp = await fetch('/api/stats');
+                var data = await resp.json();
+                var badge = document.getElementById('request-badge');
+                if (data.pending_requests > 0) {
+                    badge.textContent = data.pending_requests;
+                    badge.style.display = 'flex';
+                } else {
+                    badge.style.display = 'none';
+                }
+                var liveBadge = document.getElementById('live-chat-badge');
+                if (liveBadge) {
+                    if (data.active_live_chats > 0) {
+                        liveBadge.textContent = data.active_live_chats;
+                        liveBadge.style.display = 'flex';
+                    } else {
+                        liveBadge.style.display = 'none';
+                    }
+                }
+                var apptBadge = document.getElementById('appointments-badge');
+                if (apptBadge) {
+                    if (data.pending_appointments > 0) {
+                        apptBadge.textContent = data.pending_appointments;
+                        apptBadge.style.display = 'flex';
+                    } else {
+                        apptBadge.style.display = 'none';
+                    }
+                }
+                var gapsBadge = document.getElementById('gaps-badge');
+                if (gapsBadge) {
+                    if (data.open_knowledge_gaps > 0) {
+                        gapsBadge.textContent = data.open_knowledge_gaps;
+                        gapsBadge.style.display = 'flex';
+                    } else {
+                        gapsBadge.style.display = 'none';
+                    }
+                }
+                var pendingFactsBadge = document.getElementById('pending-facts-badge');
+                if (pendingFactsBadge) {
+                    if (data.pending_facts > 0) {
+                        pendingFactsBadge.textContent = data.pending_facts;
+                        pendingFactsBadge.style.display = 'flex';
+                    } else {
+                        pendingFactsBadge.style.display = 'none';
+                    }
+                }
+                var vacationBadge = document.getElementById('vacation-badge');
+                if (vacationBadge) {
+                    if (data.vacation_active) {
+                        vacationBadge.textContent = '!';
+                        vacationBadge.style.display = 'flex';
+                    } else {
+                        vacationBadge.style.display = 'none';
+                    }
+                }
+
+                // בדיקת הודעות חדשות בשיחות חיות — דילוג רק על המשתמש שהדף שלו פתוח
+                var currentLiveChatUserId = _getLiveChatPageUserId();
+                if (data.live_chat_updates && data.live_chat_updates.length > 0) {
+                    for (var i = 0; i < data.live_chat_updates.length; i++) {
+                        var upd = data.live_chat_updates[i];
+                        if (!upd.last_message_at) continue;
+                        var prev = _liveChatLastSeen[upd.user_id];
+                        // דילוג על התראה רק אם הדף הנוכחי הוא בדיוק השיחה של המשתמש הזה
+                        var isViewingThisChat = currentLiveChatUserId === upd.user_id;
+                        if (prev && upd.last_message_at > prev && !_liveChatFirstPoll && !isViewingThisChat) {
+                            showLiveChatNotification(formatPhone(upd.username || upd.user_id), upd.last_message);
+                        }
+                        _liveChatLastSeen[upd.user_id] = upd.last_message_at;
+                    }
+                    _liveChatFirstPoll = false;
+                }
+            } catch (e) {}
+        }
+        requestNotificationPermission();
+        updateBadge();
+        // פולינג כל 5 שניות כדי לתפוס הודעות מהר
+        setInterval(updateBadge, 5000);
+
+        // Auto-dismiss flash messages after 5s
+        setTimeout(function() {
+            document.querySelectorAll('#flash-container .alert').forEach(function(el) {
+                el.style.opacity = '0';
+                el.style.transition = 'opacity 0.3s ease';
+                setTimeout(function() { el.remove(); }, 300);
+            });
+        }, 5000);
+
+        // ── מניעת הבהוב גלובלית — דילוג על swap כשהתגובה זהה לקודמת ──
+        var _htmxLastResponse = {};
+        document.body.addEventListener('htmx:beforeSwap', function(e) {
+            var target = e.detail.target;
+            if (!target || !target.id) return;
+            var xhr = e.detail.xhr;
+            var newContent = xhr && (xhr.response || xhr.responseText) || '';
+            if (_htmxLastResponse[target.id] !== undefined && newContent === _htmxLastResponse[target.id]) {
+                e.detail.shouldSwap = false;
+                target.dispatchEvent(new CustomEvent('htmx:swapSkipped', {bubbles: true}));
+            }
+        });
+        // עדכון ה-cache רק כשה-swap באמת קרה — מונע "נעילת" תוכן שנחסם
+        document.body.addEventListener('htmx:afterSwap', function(e) {
+            var target = e.detail.target;
+            if (!target || !target.id) return;
+            var xhr = e.detail.xhr;
+            _htmxLastResponse[target.id] = xhr && (xhr.response || xhr.responseText) || '';
+        });
+
+        // HTMX: show RAG stale warning after KB delete
+        document.body.addEventListener('showStaleWarning', function() {
+            var banner = document.getElementById('rag-stale-banner');
+            if (banner) banner.style.display = '';
+        });
+
+        // ── ערכת נושא (4 מצבים: dark → light → light-warm → light-kibbutz → dark) ──
+        // dark          = ברירת המחדל (כהה, כחול-סגול)
+        // light         = הקלאסי (slate-blue, נקי)
+        // light-warm    = Editorial (cream/forest/mustard, סריף Frank Ruhl, צללים)
+        // light-kibbutz = 1950s Bezalel poster (wheat cream/olive ink, flat, sharp)
+        var THEME_CYCLE = ['dark', 'light', 'light-warm', 'light-kibbutz'];
+        // האייקון מייצג מה _יקרה_ בלחיצה הבאה (היעד).
+        var THEME_NEXT_ICON = {
+            'dark':          'bi-sun-fill',         // dark → light
+            'light':         'bi-palette-fill',     // light → light-warm
+            'light-warm':    'bi-newspaper',        // light-warm → light-kibbutz (פוסטר)
+            'light-kibbutz': 'bi-moon-fill'         // light-kibbutz → dark
+        };
+        var THEME_TITLE = {
+            'dark':          'מעבר ל-Light Classic',
+            'light':         'מעבר ל-Light Editorial',
+            'light-warm':    'מעבר ל-Light Kibbutz',
+            'light-kibbutz': 'מעבר ל-Dark'
+        };
+        function applyTheme(theme) {
+            // הגנה: ערך לא חוקי (למשל מ-localStorage ישן) ⇒ נופלים ל-dark
+            // וגם מנקים את localStorage — אחרת ה-IIFE בראש העמוד ימשיך
+            // לקרוא את הערך השבור בכל refresh. תיקון שלם בשני המקומות.
+            if (THEME_CYCLE.indexOf(theme) === -1) {
+                theme = 'dark';
+                try { localStorage.removeItem('admin-theme'); } catch (e) {}
+            }
+            document.documentElement.setAttribute('data-theme', theme);
+            var icon = document.getElementById('theme-icon');
+            if (icon) icon.className = 'bi ' + THEME_NEXT_ICON[theme];
+            var btn = document.querySelector('.theme-toggle');
+            if (btn) btn.title = THEME_TITLE[theme];
+        }
+        function toggleTheme() {
+            var current = document.documentElement.getAttribute('data-theme') || 'dark';
+            var idx = THEME_CYCLE.indexOf(current);
+            if (idx === -1) idx = 0; // fallback → dark
+            var next = THEME_CYCLE[(idx + 1) % THEME_CYCLE.length];
+            localStorage.setItem('admin-theme', next);
+            applyTheme(next);
+        }
+        applyTheme(localStorage.getItem('admin-theme') || 'dark');
+
+        // ── פופאובר פתק לקוח ──
+        (function() {
+            var _activePopover = null;
+            var _csrfToken = document.querySelector('meta[name="csrf-token"]');
+            _csrfToken = _csrfToken ? _csrfToken.content : '';
+
+            function closePopover() {
+                if (_activePopover) {
+                    _activePopover.remove();
+                    _activePopover = null;
+                }
+            }
+
+            function openPopover(trigger) {
+                closePopover();
+                var userId = trigger.dataset.userId;
+                var note = trigger.dataset.note || '';
+
+                var pop = document.createElement('div');
+                pop.className = 'note-popover';
+                pop.innerHTML =
+                    '<textarea placeholder="כתוב פתק על הלקוח..."></textarea>' +
+                    '<div class="note-popover-actions">' +
+                    '<button class="btn btn-primary btn-sm note-save-btn"><i class="bi bi-check-lg"></i> שמור</button>' +
+                    '<button class="btn btn-secondary btn-sm note-cancel-btn"><i class="bi bi-x-lg"></i></button>' +
+                    '</div>';
+                // הזנת תוכן הפתק דרך DOM ולא innerHTML — מונע שחיתות של entities
+                pop.querySelector('textarea').value = note;
+
+                document.body.appendChild(pop);
+                _activePopover = pop;
+
+                // מיקום ליד האייקון
+                var rect = trigger.getBoundingClientRect();
+                var popW = 260;
+                var left = rect.left - popW - 8;
+                if (left < 8) left = rect.right + 8;
+                var top = rect.top;
+                if (top + 160 > window.innerHeight) top = window.innerHeight - 170;
+                pop.style.top = top + 'px';
+                pop.style.left = left + 'px';
+
+                var textarea = pop.querySelector('textarea');
+                textarea.focus();
+
+                pop.querySelector('.note-save-btn').addEventListener('click', function() {
+                    var newNote = textarea.value.trim();
+                    var fd = new FormData();
+                    fd.append('note', newNote);
+                    fetch('/api/user-note/' + encodeURIComponent(userId), {
+                        method: 'POST',
+                        headers: {'X-CSRFToken': _csrfToken},
+                        body: fd
+                    }).then(function(r) {
+                        if (!r.ok) throw new Error('שמירה נכשלה (' + r.status + ')');
+                        return r.json();
+                    }).then(function() {
+                        // עדכון cache של פתקים (לדפים עם _userNotes כמו appointments)
+                        if (window._userNotes !== undefined) {
+                            if (newNote) { window._userNotes[userId] = newNote; }
+                            else { delete window._userNotes[userId]; }
+                        }
+                        // עדכון כל האייקונים עם אותו user_id
+                        document.querySelectorAll('.user-note-trigger[data-user-id="' + userId + '"]').forEach(function(t) {
+                            t.dataset.note = newNote;
+                            t.title = newNote || 'הוסף פתק';
+                            var icon = t.querySelector('i');
+                            if (newNote) {
+                                t.classList.add('has-note');
+                                icon.className = 'bi bi-sticky-fill';
+                            } else {
+                                t.classList.remove('has-note');
+                                icon.className = 'bi bi-sticky';
+                            }
+                        });
+                        closePopover();
+                    }).catch(function(err) {
+                        console.error('שגיאה בשמירת פתק:', err);
+                    });
+                });
+
+                pop.querySelector('.note-cancel-btn').addEventListener('click', closePopover);
+            }
+
+            // האזנה לאירועי לחיצה על אייקוני פתק (event delegation)
+            document.body.addEventListener('click', function(e) {
+                var trigger = e.target.closest('.user-note-trigger');
+                if (trigger) {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    openPopover(trigger);
+                    return;
+                }
+                // סגירת פופאובר בלחיצה מחוץ
+                if (_activePopover && !_activePopover.contains(e.target)) {
+                    closePopover();
+                }
+            });
+
+            // סגירה ב-Escape
+            document.addEventListener('keydown', function(e) {
+                if (e.key === 'Escape') closePopover();
+            });
+        })();
+
+        // HTMX: handle expired CSRF token
+        document.body.addEventListener('csrfExpired', function() {
+            alert('פג תוקף הטופס. יש לרענן את הדף ולנסות שוב.');
+        });
+
+        // HTMX: show toast notification from server-triggered events
+        document.body.addEventListener('showToast', function(e) {
+            var detail = e.detail || {};
+            alert(detail.message || 'שגיאה לא צפויה.');
+        });
+    </script>
+
+    {# Phase 4 — upgrade modal — מועלה פעם אחת ופותח דרך showUpgradeModal() #}
+    <script>
+        // מיפוי feature_name → display_name של החבילה המינימלית הנדרשת.
+        // נכתב בצד שרת ע"י context_processor של feature_flags.
+        // landing_page הוסר — שירות ידני, לא feature flag.
+        window.__upgradeModalRequiredPlans = {
+            {% for feature_name in [
+                "broadcast", "followup_24h",
+                "calendar_sync", "scenarios_max"
+            ] %}
+                {% set plan_key = min_plan_for_feature(feature_name) %}
+                {% if plan_key %}
+                  "{{ feature_name }}": "{{ plan_display_names[plan_key] }}",
+                {% endif %}
+            {% endfor %}
+        };
+    </script>
+    {% include "_partials/upgrade_modal.html" %}
+
+    {# HTMX: בקשה ל-feature-gated route שנחסמה — מציג מודאל שדרג #}
+    <script>
+        document.body.addEventListener('featureDenied', function(e) {
+            // אין לנו שם פיצ'ר ספציפי מה-trigger (HX-Trigger value).
+            // מנסים לזהות מהקונטקסט (אלמנט המקור), ואם לא נמצא — fallback.
+            var src = e.detail && e.detail.elt ? e.detail.elt : null;
+            var feature = (src && src.dataset && src.dataset.feature) || '';
+            var label = (src && src.dataset && src.dataset.featureLabel)
+                        || (src && src.textContent && src.textContent.trim())
+                        || feature || 'פיצ׳ר זה';
+            showUpgradeModal(feature, label);
+        });
+    </script>
+
+    {% block scripts %}{% endblock %}
+
+    {# רישום Service Worker — נדרש ל-PWA installable + Web Push notifications. #}
+    <script>
+        // המרת base64url ל-Uint8Array עבור applicationServerKey של PushManager.
+        function _urlBase64ToUint8Array(base64String) {
+            var padding = '='.repeat((4 - base64String.length % 4) % 4);
+            var base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
+            var rawData = window.atob(base64);
+            var outputArray = new Uint8Array(rawData.length);
+            for (var i = 0; i < rawData.length; ++i) {
+                outputArray[i] = rawData.charCodeAt(i);
+            }
+            return outputArray;
+        }
+
+        async function _ensurePushSubscription(registration) {
+            // מנגנון מושבת אם אין הרשאת התראות.
+            if (typeof Notification === 'undefined' || Notification.permission !== 'granted') {
+                return;
+            }
+            if (!('pushManager' in registration)) return;
+
+            // שליפת ה-public key מהשרת. ערך ריק = VAPID לא מוגדר → לדלג.
+            var keyResp;
+            try {
+                keyResp = await fetch('/api/push/vapid-public-key');
+            } catch (e) { return; }
+            if (!keyResp.ok) return;
+            var keyData = await keyResp.json();
+            if (!keyData.key) return;
+
+            // אם כבר יש subscription בדפדפן — שולחים אותו לשרת תמיד.
+            // ה-POST הוא upsert idempotent; חיוני שירוץ כל page load כדי
+            // לתפוס מקרה שבו ה-DB אופס (restore/migration) והדפדפן עוד
+            // מחזיק subscription. השרת מתחזק שורה אחת לכל endpoint.
+            var existing = await registration.pushManager.getSubscription();
+            if (existing) {
+                await _sendSubscriptionToServer(existing);
+                return;
+            }
+
+            try {
+                var subscription = await registration.pushManager.subscribe({
+                    userVisibleOnly: true,
+                    applicationServerKey: _urlBase64ToUint8Array(keyData.key),
+                });
+                await _sendSubscriptionToServer(subscription);
+            } catch (e) {
+                console.warn('Push subscribe failed:', e);
+            }
+        }
+
+        async function _sendSubscriptionToServer(subscription) {
+            try {
+                await fetch('/api/push/subscribe', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(subscription.toJSON()),
+                });
+            } catch (e) {
+                console.warn('Push subscription POST failed:', e);
+            }
+        }
+
+        if ('serviceWorker' in navigator) {
+            window.addEventListener('load', function () {
+                navigator.serviceWorker.register('/sw.js', { scope: '/' })
+                    .then(function (registration) {
+                        // ניסיון אוטומטי לרשום ל-Web Push — רץ רק אם יש הרשאה.
+                        // אם המשתמש עוד לא אישר, רישום יקרה אחרי שתינתן הרשאה
+                        // (האזנה למטה).
+                        return navigator.serviceWorker.ready.then(_ensurePushSubscription);
+                    })
+                    .catch(function (err) { console.warn('SW registration failed:', err); });
+            });
+
+            // האזנה לשינוי הרשאת notifications — מתפעלת רישום ל-Web Push
+            // ברגע שההרשאה ניתנת, גם אם הבקשה (`Notification.requestPermission`)
+            // נשלחה ע"י קוד אחר לפני שה-load handler שלנו רץ. ה-API הזה
+            // הוא המקור היחיד שעובד גם כשהבקשה נשלחה מסקריפט אחר.
+            if ('permissions' in navigator) {
+                navigator.permissions.query({ name: 'notifications' })
+                    .then(function (status) {
+                        status.onchange = function () {
+                            if (status.state === 'granted') {
+                                navigator.serviceWorker.ready.then(_ensurePushSubscription);
+                            }
+                        };
+                    })
+                    .catch(function () { /* notifications permission unsupported */ });
+            }
+
+            // גיבוי נוסף: עטיפת Notification.requestPermission כדי לתפוס גם
+            // קריאות שמגיעות *אחרי* שה-load handler רץ (למשל מ-handler ידני
+            // של כפתור). לא תופס את הקריאה הראשונה בטעינה — לזה משמש onchange
+            // למעלה. שניהם יחד מבטיחים שאף הרשאה לא תאבד.
+            var _origRequest = (typeof Notification !== 'undefined') ? Notification.requestPermission : null;
+            if (_origRequest) {
+                Notification.requestPermission = function () {
+                    var p = _origRequest.apply(Notification, arguments);
+                    if (p && p.then) {
+                        p.then(function (perm) {
+                            if (perm === 'granted') {
+                                navigator.serviceWorker.ready.then(_ensurePushSubscription);
+                            }
+                        });
+                    }
+                    return p;
+                };
+            }
+        }
+    </script>
+
+    {# בועת "צ'אט מתחזה" לגולש דמו — מדמה הודעת ווטסאפ נכנסת ומובילה לשיחה אמיתית. #}
+    {% if is_demo_session and demo_cta_whatsapp %}
+    {% set aicw_wa_phone = demo_cta_whatsapp|replace('+', '')|replace('-', '')|replace(' ', '') %}
+    {% set aicw_wa_text = 'היי, ראיתי את הדמו של AI Business Chatbot ואני מעוניין בשבוע הניסיון החינם' %}
+    {% set aicw_wa_link = 'https://wa.me/' ~ aicw_wa_phone ~ '?text=' ~ aicw_wa_text|urlencode %}
+    <div class="aicw" id="aicw-widget" dir="rtl"
+         data-wa-link="{{ aicw_wa_link }}"
+         data-demo-session-id="{{ demo_session_id }}">
+        {# בועה סגורה — מצב התחלתי, עם פעימה עדינה #}
+        <button type="button" class="aicw-bubble" id="aicw-bubble" aria-label="פתח שיחת ווטסאפ">
+            <i class="bi bi-whatsapp" aria-hidden="true"></i>
+            <span class="aicw-bubble-avatar" aria-hidden="true">
+                <img src="{{ url_for('static', filename='avatar.png') }}" alt="" onerror="this.parentNode.classList.add('is-fallback'); this.remove();">
+            </span>
+        </button>
+
+        {# כרטיס הודעה — נפתח אחרי 30 שניות עם אנימציית הקלדה #}
+        <div class="aicw-card" id="aicw-card" role="dialog" aria-label="הודעה חדשה" aria-hidden="true">
+            <button type="button" class="aicw-close" id="aicw-close" aria-label="סגור הודעה">&times;</button>
+            <div class="aicw-header">
+                <div class="aicw-avatar">
+                    <img src="{{ url_for('static', filename='avatar.png') }}" alt="" onerror="this.parentNode.classList.add('is-fallback'); this.remove();">
+                    <span class="aicw-online-dot" aria-hidden="true"></span>
+                </div>
+                <div class="aicw-meta">
+                    <div class="aicw-name">אמיר | אוטומציה בקלות</div>
+                    <div class="aicw-status">
+                        <span class="aicw-status-dot" aria-hidden="true"></span>
+                        זמין עכשיו
+                    </div>
+                </div>
+            </div>
+            <div class="aicw-body">
+                <div class="aicw-typing" id="aicw-typing" aria-hidden="true">
+                    <span></span><span></span><span></span>
+                </div>
+                <div class="aicw-message" id="aicw-message" aria-hidden="true">
+                    היי 👋 רוצה לראות איך זה ייראה לעסק שלך? שבוע ניסיון חינם, בלי כרטיס אשראי
+                </div>
+            </div>
+            <a class="aicw-cta" id="aicw-cta" href="{{ aicw_wa_link }}" target="_blank" rel="noopener">
+                <i class="bi bi-whatsapp" aria-hidden="true"></i>
+                <span>דברו איתי</span>
+            </a>
+        </div>
+    </div>
+
+    <script>
+    (function() {
+        // בועת צ'אט מתחזה — לוגיקת timing וסגירה. ללא תלות חיצונית.
+        //
+        // **חשוב** (תיקון בעיה: 30s לא היה קופץ במצב דמו): הפאנל אינו SPA,
+        // כל ניווט בין דפים עושה reload מלא, וה-setTimeout הקודם נעלם.
+        // אם המשתמש מסייר בין דפים כל 5-10 שניות, ה-timer לעולם לא יצבור
+        // 30 שניות באותו דף.
+        //
+        // הפתרון: שמירת timestamp של תחילת הסשן ב-sessionStorage, וחישוב
+        // הזמן המצטבר בכל טעינת דף. כך הניווט שקוף — ה-card יקפוץ אחרי
+        // 30 שניות מצטברות מאז כניסה ראשונה לסשן הדמו.
+        var DISMISS_KEY = 'aicw_dismissed';
+        var FIRST_VISIT_KEY = 'aicw_first_visit_ts';
+        var SESSION_ID_KEY = 'aicw_demo_session_id';
+        var OPEN_DELAY_MS = 30000;   // 30 שניות מצטברות עד שההודעה מופיעה
+        var TYPING_MS = 1600;        // משך אנימציית "מקליד..."
+        var widget = document.getElementById('aicw-widget');
+        if (!widget) return;
+
+        var bubble = document.getElementById('aicw-bubble');
+        var card = document.getElementById('aicw-card');
+        var closeBtn = document.getElementById('aicw-close');
+        var typing = document.getElementById('aicw-typing');
+        var message = document.getElementById('aicw-message');
+        var cta = document.getElementById('aicw-cta');
+        var waLink = widget.getAttribute('data-wa-link');
+        var currentSessionId = widget.getAttribute('data-demo-session-id') || '';
+
+        function safeGet(key) {
+            try { return sessionStorage.getItem(key); } catch (e) { return null; }
+        }
+        function safeSet(key, val) {
+            try { sessionStorage.setItem(key, val); } catch (e) { /* private mode etc. */ }
+        }
+        function safeRemove(key) {
+            try { sessionStorage.removeItem(key); } catch (e) { /* ignore */ }
+        }
+
+        // איפוס state כש-סשן דמו חדש מתחיל (Cursor regression):
+        // הtab עשוי להחזיק aicw_first_visit_ts + aicw_dismissed מסשן דמו
+        // קודם. בלי איפוס, סשן דמו חדש היה רואה elapsed ענק ופותח את
+        // ה-card מיד (או לעולם לא — אם dismissed).
+        // המזהה מהשרת (session["demo_session_id"]) מתחדש בכל כניסה ל-/demo.
+        //
+        // **חשוב** (Cursor regression שני): טיפול ב-3 מצבים שונים:
+        // (א) currentSessionId ריק → legacy template (לפני שהוספנו את
+        //     demo_session_id) או שגיאה. לא לטפל בכלל; שומרים על
+        //     ה-state הקיים ב-sessionStorage.
+        // (ב) storedSessionId הוא null/empty → first page load ב-tab.
+        //     ייתכן שיש first_visit_ts/dismissed לגיטימיים מהסשן הנוכחי
+        //     (legacy מלפני התיקון), אז לא למחוק. רק שומרים את ה-ID
+        //     ל-comparison עתידי.
+        // (ג) storedSessionId שונה מ-currentSessionId → סשן דמו חדש
+        //     (לוגאוט + חזרה ל-/demo) → איפוס מלא.
+        if (currentSessionId) {
+            var storedSessionId = safeGet(SESSION_ID_KEY);
+            if (storedSessionId !== currentSessionId) {
+                if (storedSessionId !== null && storedSessionId !== '') {
+                    // (ג) סשן חדש אמיתי — איפוס first_visit + dismissed
+                    safeRemove(FIRST_VISIT_KEY);
+                    safeRemove(DISMISS_KEY);
+                }
+                // (ב) או (ג) — בשני המקרים שומרים את ה-ID החדש
+                safeSet(SESSION_ID_KEY, currentSessionId);
+            }
+        }
+
+        // קליק על הבועה הסגורה — פתיחת ווטסאפ ישירות (כפי שצריך להתנהג כפתור CTA)
+        // וגם dismiss כדי שהכרטיס לא יקפוץ אחרי 30s כשהמשתמש כבר הלך לוואטסאפ
+        bubble.addEventListener('click', function() {
+            safeSet(DISMISS_KEY, 'true');
+            window.open(waLink, '_blank', 'noopener');
+        });
+
+        // קליק על "דברו איתי" (לינק רגיל לוואטסאפ) — אותו dismiss, אחרת הכרטיס
+        // יקפוץ שוב במעבר עמוד באותו session אחרי שהמשתמש כבר המיר
+        cta.addEventListener('click', function() {
+            safeSet(DISMISS_KEY, 'true');
+        });
+
+        // סגירה — שמירה ל-sessionStorage כדי שלא תקפוץ שוב במעבר עמוד
+        closeBtn.addEventListener('click', function(e) {
+            e.stopPropagation();
+            card.classList.remove('is-open');
+            card.setAttribute('aria-hidden', 'true');
+            safeSet(DISMISS_KEY, 'true');
+        });
+
+        if (safeGet(DISMISS_KEY) === 'true') return;
+
+        // פתיחת הכרטיס — מופרד לפונקציה כדי שאפשר יהיה לקרוא לה גם
+        // מיד (אם הזמן המצטבר כבר עבר את הסף) וגם אחרי setTimeout.
+        function openCard() {
+            // בדיקה חוזרת — ייתכן שהמשתמש סגר בטאב אחר במהלך ההמתנה
+            if (safeGet(DISMISS_KEY) === 'true') return;
+            card.classList.add('is-open');
+            card.setAttribute('aria-hidden', 'false');
+            typing.classList.add('is-visible');
+            setTimeout(function() {
+                typing.classList.remove('is-visible');
+                message.classList.add('is-visible');
+                message.setAttribute('aria-hidden', 'false');
+            }, TYPING_MS);
+        }
+
+        // חישוב זמן מצטבר מאז כניסה ראשונה לסשן (חוצה ניווטים).
+        var firstVisit = parseInt(safeGet(FIRST_VISIT_KEY) || '0', 10);
+        if (!firstVisit || isNaN(firstVisit)) {
+            firstVisit = Date.now();
+            safeSet(FIRST_VISIT_KEY, String(firstVisit));
+        }
+        var elapsed = Date.now() - firstVisit;
+        var remaining = OPEN_DELAY_MS - elapsed;
+
+        if (remaining <= 0) {
+            // כבר עברו 30 שניות באחד הדפים הקודמים — לפתוח מיד.
+            openCard();
+        } else {
+            setTimeout(openCard, remaining);
+        }
+    })();
+    </script>
+    {% endif %}
+</body>
+</html>
