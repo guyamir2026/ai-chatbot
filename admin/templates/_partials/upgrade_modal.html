@@ -1,0 +1,80 @@
+{#
+  מודאל "שדרג חבילה" (Phase 4).
+
+  נטען פעם אחת ב-base.html ופותח דרך showUpgradeModal(feature, label).
+  התוכן הדינמי (שם הפיצ'ר + החבילה הנדרשת) מתמלא ב-JS.
+
+  התלות:
+  - הקסטמיזציה של החבילות הנוכחית/מינימלית מועברת מהשרת דרך data-attributes
+    על ה-body של ה-modal. JS משתמש ב-min_plan_for_feature שנפתח כבר ב-context.
+  - התקשורת עם spec הצוות: דרך telegram/email — מצריך BUSINESS_OWNER לדעת
+    איך ליצור קשר עם המפתח. הטקסט כאן ניטרלי ("ספק השירות").
+#}
+
+<div id="upgrade-modal" class="upgrade-modal-overlay" style="display:none;"
+     onclick="if (event.target === this) closeUpgradeModal();"
+     aria-hidden="true" role="dialog">
+  <div class="upgrade-modal-card" role="document">
+    <button type="button" class="upgrade-modal-close" onclick="closeUpgradeModal()"
+            aria-label="סגור">
+      <i class="bi bi-x-lg"></i>
+    </button>
+
+    <div class="upgrade-modal-icon">
+      <i class="bi bi-stars"></i>
+    </div>
+
+    <h2 class="upgrade-modal-title">שדרוג חבילה</h2>
+
+    <p class="upgrade-modal-body">
+      הפיצ'ר <strong id="upgrade-feature-label">—</strong> לא זמין בחבילה
+      הנוכחית שלך
+      (<strong>{{ plan_definition.display_name }}</strong>).
+    </p>
+
+    <div class="upgrade-modal-availability">
+      <span class="upgrade-modal-label">פיצ'ר זה זמין החל מחבילה:</span>
+      <strong id="upgrade-required-plan">—</strong>
+    </div>
+
+    <p class="upgrade-modal-cta">
+      ליצירת קשר לשדרוג — דברו עם ספק השירות.
+    </p>
+
+    <div class="upgrade-modal-actions">
+      <button type="button" class="btn btn-secondary" onclick="closeUpgradeModal()">
+        סגור
+      </button>
+    </div>
+  </div>
+</div>
+
+<script>
+  // מיפוי feature_name → required_plan, מחושב בצד השרת.
+  // מועבר ל-JS דרך global שנכתב בעמוד באותו block. ראה base.html.
+  window.__upgradeModalRequiredPlans = window.__upgradeModalRequiredPlans || {};
+
+  function showUpgradeModal(featureName, featureLabel) {
+    const modal = document.getElementById('upgrade-modal');
+    if (!modal) return;
+    document.getElementById('upgrade-feature-label').textContent = featureLabel || featureName;
+    const required = window.__upgradeModalRequiredPlans[featureName] || '—';
+    document.getElementById('upgrade-required-plan').textContent = required;
+    modal.style.display = 'flex';
+    modal.setAttribute('aria-hidden', 'false');
+    document.body.style.overflow = 'hidden';
+  }
+
+  function closeUpgradeModal() {
+    const modal = document.getElementById('upgrade-modal');
+    if (!modal) return;
+    modal.style.display = 'none';
+    modal.setAttribute('aria-hidden', 'true');
+    document.body.style.overflow = '';
+  }
+
+  // ESC לסגור
+  document.addEventListener('keydown', function(e) {
+    if (e.key === 'Escape') closeUpgradeModal();
+  });
+</script>
