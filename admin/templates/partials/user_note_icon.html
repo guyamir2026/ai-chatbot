@@ -1,0 +1,12 @@
+{#
+  אייקון פתק לקוח — מוצג ליד שם המשתמש.
+  שימוש: {% include "partials/user_note_icon.html" with context %}
+  דורש משתנה _note_user_id בהקשר הקורא.
+#}
+{% set _note = user_notes.get(_note_user_id, '') %}
+<span class="user-note-trigger{% if _note %} has-note{% endif %}"
+      data-user-id="{{ _note_user_id }}"
+      data-note="{{ _note|e }}"
+      title="{{ _note if _note else 'הוסף פתק' }}">
+    <i class="bi {% if _note %}bi-sticky-fill{% else %}bi-sticky{% endif %}"></i>
+</span>
