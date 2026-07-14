@@ -1,0 +1,456 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="page-header animate-fade-in" style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: var(--space-xs);">
+    <h1><i class="bi bi-megaphone"></i> תבניות WhatsApp (Meta HSM)</h1>
+    <div style="display: flex; gap: var(--space-xs);">
+        <a href="/broadcast/templates/new" class="btn btn-primary">
+            <i class="bi bi-plus-circle"></i> תבנית חדשה
+        </a>
+        <form method="POST" action="/broadcast/templates/sync" style="margin: 0;">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <button type="submit" class="btn btn-secondary">
+                <i class="bi bi-arrow-repeat"></i> סנכרן מ-Twilio
+            </button>
+        </form>
+    </div>
+</div>
+
+<!-- הסבר קצר -->
+<div class="card animate-slide-up stagger-1" style="margin-bottom: var(--space-sm);">
+    <div class="card-body" style="padding: var(--space-sm);">
+        <p style="margin: 0 0 var(--space-sm) 0; color: var(--text-secondary); line-height: 1.6;">
+            <i class="bi bi-info-circle"></i>
+            שליחה יזומה ב-WhatsApp (broadcast) מחוץ לחלון 24 שעות מחייבת תבנית שאושרה
+            מראש ע"י Meta. הטבלה מסונכרנת מ-Twilio Content API ומציגה את סטטוס האישור
+            של כל תבנית. רק תבניות במצב <strong>"אושרה"</strong> יופיעו ב-wizard
+            הקמפיינים.
+        </p>
+        <details style="color: var(--text-secondary); line-height: 1.6;">
+            <summary style="cursor: pointer; font-weight: 500;">
+                <i class="bi bi-question-circle"></i> איך מוסיפים תבנית חדשה לאישור Meta?
+            </summary>
+            <ol style="margin: 0.5rem 0 0 1.25rem; padding: 0;">
+                <li>לוחצים <strong>"תבנית חדשה"</strong> בראש הדף — הטופס מאפשר
+                    יצירת body, header (טקסט/תמונה/וידאו/מסמך), footer
+                    וכפתורים (Quick Reply או Call-to-Action). יש תצוגה
+                    מקדימה חיה בזמן ההקלדה.</li>
+                <li>אחרי לחיצה על <strong>"צור תבנית"</strong>, התבנית
+                    נוצרת ב-Twilio במצב <em>"לא הוגשה"</em> ואתם מועברים
+                    אוטומטית לטופס שליחה לאישור Meta.</li>
+                <li>בוחרים קטגוריה (שיווק / שירות / אימות) ושם ייחודי ולוחצים
+                    <strong>"שלח לאישור"</strong>. Meta עונה תוך 1-24 שעות.</li>
+                <li>אחרי 1-24 שעות לוחצים <strong>"סנכרן מ-Twilio"</strong> →
+                    הסטטוס מתעדכן ל-<em>"אושרה"</em>, התבנית מופיעה ב-wizard
+                    יצירת קמפיין.</li>
+            </ol>
+            <p class="text-small text-muted" style="margin-top: 0.5rem;">
+                <i class="bi bi-lightbulb"></i>
+                <strong>טיפ:</strong> שיווק (Marketing) דורש opt-in מפורש מהנמענים
+                לפי תיקון 40 לחוק התקשורת. ברוב המקרים שירות (Utility) — תזכורות,
+                אישורי הזמנה, מעקב משלוח — מספיק ואין לו דרישת opt-in כזו.
+            </p>
+            <p class="text-small text-muted" style="margin-top: 0.5rem;">
+                <i class="bi bi-info-circle"></i>
+                אפשר גם ליצור תבנית ישירות ב-<a href="https://console.twilio.com/us1/develop/sms/content-template-builder" target="_blank" rel="noopener">Twilio Console</a>
+                ואז ללחוץ "סנכרן מ-Twilio" כדי להביא אותה לכאן.
+            </p>
+        </details>
+    </div>
+</div>
+
+<!-- אזור סינון: כפתורים בולטים עם hover, מובהר שאלה לחיצים -->
+{% set _category_labels = {"MARKETING": "שיווק", "UTILITY": "שירות", "AUTHENTICATION": "אימות"} %}
+{% set _qs_status = ("&status=" ~ status_filter) if status_filter else "" %}
+{% set _qs_cat = ("&category=" ~ category_filter) if category_filter else "" %}
+
+<style>
+/* כפתורי סינון — מבדל ברור בין רגיל / hover / active. inline כי
+   זה דף ספציפי ולא כדאי להעמיס על הסטיילים הגלובליים. */
+.filter-chip {
+    display: inline-flex; align-items: center; gap: 0.4rem;
+    padding: 0.5rem 0.95rem;
+    border-radius: 999px;
+    background: var(--bg-secondary);
+    border: 1px solid var(--border);
+    color: var(--text-primary);
+    text-decoration: none;
+    font-size: 0.9rem;
+    cursor: pointer;
+    transition: background 0.15s, border-color 0.15s, color 0.15s, transform 0.1s;
+    user-select: none;
+}
+.filter-chip:hover {
+    background: var(--bg-hover, var(--bg-tertiary));
+    border-color: var(--primary);
+    color: var(--primary);
+    text-decoration: none;
+}
+.filter-chip:active { transform: scale(0.97); }
+.filter-chip.active {
+    background: var(--primary);
+    border-color: var(--primary);
+    color: var(--primary-contrast, #fff);
+    font-weight: 600;
+}
+/* dashed: רק במצב לא-active. אם נשמיט את :not(.active), ה-rule הזה
+   ידרוס את active.color (אותה specificity, סדר ב-CSS גובר) — תוצאה:
+   טקסט אפור על רקע primary. */
+.filter-chip.dashed:not(.active) {
+    border-style: dashed;
+    color: var(--text-muted);
+}
+.filter-chip strong { font-weight: 700; opacity: 0.85; }
+.filter-card-section { margin-bottom: var(--space-xs); }
+.filter-label {
+    font-size: 0.85rem; color: var(--text-secondary);
+    margin-left: var(--space-xs); font-weight: 500;
+}
+
+/* Badges לקטגוריה — צבעים ייחודיים שלא חופפים לסטטוסים
+   (success/warning/danger) או לכפתורי הסינון (primary).
+   ברירת מחדל: צבעי טקסט בהירים שעובדים על dark background.
+   ב-light theme — overrides לצבעים כהים יותר לקריאות מספקת. */
+.badge-cat-marketing {
+    background: rgba(59, 130, 246, 0.2);
+    color: #93c5fd;
+    font-weight: 600;
+}
+.badge-cat-utility {
+    background: rgba(20, 184, 166, 0.2);  /* teal */
+    color: #5eead4;
+    font-weight: 600;
+}
+.badge-cat-auth {
+    background: rgba(168, 85, 247, 0.2);  /* purple — ייחודי, לא חופף ל-warning */
+    color: #d8b4fe;
+    font-weight: 600;
+}
+.badge-cat-unknown {
+    background: rgba(148, 163, 184, 0.2);
+    color: var(--text-muted);
+}
+
+/* Badges לסטטוס שלא היו מוגדרים (paused/unsubmitted נפלו ל-
+   badge-secondary שלא קיים → לא מעוצב). */
+.badge-status-muted {
+    background: rgba(148, 163, 184, 0.18);
+    color: var(--text-muted);
+}
+
+/* Overrides לכל theme שמתחיל ב-"light" (light, light-warm) — צבעים
+   כהים יותר לקריאות מספקת על רקע בהיר. הסלקטור [data-theme^="light"]
+   מבטיח שכל גרסת light חדשה תקבל אוטומטית את ה-fallback בלי לשכפל. */
+[data-theme^="light"] .badge-cat-marketing {
+    background: rgba(59, 130, 246, 0.15);
+    color: #1e40af;
+}
+[data-theme^="light"] .badge-cat-utility {
+    background: rgba(20, 184, 166, 0.15);
+    color: #0f766e;
+}
+[data-theme^="light"] .badge-cat-auth {
+    background: rgba(168, 85, 247, 0.15);
+    color: #6b21a8;
+}
+[data-theme^="light"] .badge-cat-unknown {
+    background: rgba(148, 163, 184, 0.15);
+    color: #475569;
+}
+[data-theme^="light"] .badge-status-muted {
+    background: rgba(148, 163, 184, 0.12);
+    color: #475569;
+}
+</style>
+
+<div class="card animate-slide-up stagger-1" id="filter-card" style="margin-bottom: var(--space-sm);">
+    <div class="card-body" style="padding: var(--space-sm); display: flex; flex-direction: column; gap: var(--space-xs);">
+        <button type="button" id="filter-toggle"
+                style="background: transparent; border: 0; padding: 0; cursor: pointer;
+                       display: flex; align-items: center; justify-content: space-between;
+                       width: 100%; color: var(--text-secondary); font-weight: 500;
+                       font-size: 0.9rem;">
+            <span>
+                <i class="bi bi-funnel"></i> סינון — לחצו על אחד הכפתורים כדי לסנן את הרשימה
+            </span>
+            <i class="bi bi-chevron-up" id="filter-toggle-icon"></i>
+        </button>
+
+        <div id="filter-body" style="display: flex; flex-direction: column; gap: var(--space-xs);">
+        <div class="filter-card-section" style="display: flex; gap: 0.4rem; flex-wrap: wrap; align-items: center;">
+            <span class="filter-label">קטגוריה:</span>
+            <a href="/broadcast/templates?{{ _qs_status[1:] if _qs_status else '' }}"
+               class="filter-chip{% if not category_filter %} active{% endif %}">
+                הכל (broadcast)
+            </a>
+            {% for cat in broadcast_categories %}
+            <a href="/broadcast/templates?category={{ cat }}{{ _qs_status }}"
+               class="filter-chip{% if category_filter == cat %} active{% endif %}">
+                {{ _category_labels.get(cat, cat) }}
+                <strong>{{ category_counts.get(cat, 0) }}</strong>
+            </a>
+            {% endfor %}
+            <a href="/broadcast/templates?category=ALL{{ _qs_status }}"
+               class="filter-chip dashed{% if (show_all and not category_filter) or category_filter == 'ALL' %} active{% endif %}"
+               title="כולל תבניות שיחה דינמיות שנוצרו ע&quot;י הקוד">
+                <i class="bi bi-eye"></i> כולל תבניות פנימיות
+            </a>
+        </div>
+
+        <div class="filter-card-section" style="display: flex; gap: 0.4rem; flex-wrap: wrap; align-items: center;">
+            <span class="filter-label">סטטוס:</span>
+            {% for status, label in status_labels.items() %}
+            <a href="/broadcast/templates?status={{ status }}{{ _qs_cat }}"
+               class="filter-chip{% if status_filter == status %} active{% endif %}">
+                {{ label }}
+                <strong>{{ counts.get(status, 0) }}</strong>
+            </a>
+            {% endfor %}
+            {% if status_filter or category_filter %}
+            <a href="/broadcast/templates" class="filter-chip" style="border-color: var(--danger, #d44); color: var(--danger, #d44);">
+                <i class="bi bi-x-circle"></i> נקה סינון
+            </a>
+            {% endif %}
+        </div>
+        </div>{# /filter-body #}
+    </div>
+</div>
+
+<script>
+// קיפול אזור הסינון + שמירת המצב ב-localStorage כדי שיישאר בין כניסות.
+// אם יש פילטר פעיל ב-URL — תמיד פותחים, גם אם המשתמש סגר בעבר, כי
+// הוא צריך לראות מה מסונן.
+(function () {
+    const STORAGE_KEY = 'broadcast_templates_filter_collapsed';
+    const card = document.getElementById('filter-card');
+    const toggle = document.getElementById('filter-toggle');
+    const body = document.getElementById('filter-body');
+    const icon = document.getElementById('filter-toggle-icon');
+    if (!card || !toggle || !body || !icon) return;
+
+    const params = new URLSearchParams(window.location.search);
+    const hasActiveFilter = params.has('status') || params.has('category');
+
+    function apply(collapsed) {
+        body.style.display = collapsed ? 'none' : 'flex';
+        icon.classList.toggle('bi-chevron-up', !collapsed);
+        icon.classList.toggle('bi-chevron-down', collapsed);
+        toggle.setAttribute('aria-expanded', String(!collapsed));
+    }
+
+    // טעינת המצב הקיים מ-localStorage; אם יש פילטר פעיל — overrides לפתוח.
+    let collapsed = false;
+    try {
+        collapsed = localStorage.getItem(STORAGE_KEY) === '1';
+    } catch (e) { /* localStorage חסום (privacy mode) — מתעלמים */ }
+    if (hasActiveFilter) collapsed = false;
+    apply(collapsed);
+
+    toggle.addEventListener('click', function () {
+        collapsed = !collapsed;
+        apply(collapsed);
+        try {
+            localStorage.setItem(STORAGE_KEY, collapsed ? '1' : '0');
+        } catch (e) { /* ignore */ }
+    });
+})();
+
+// confirm דיאלוג למחיקת תבנית — מתאים את ההודעה לסטטוס. data-attributes
+// מ-Jinja כדי לא להסתבך עם escape של מרכאות בתוך onsubmit.
+function wa_confirm_delete(form) {
+    const name = form.dataset.templateName || '';
+    const status = (form.dataset.status || '').toLowerCase();
+    let msg;
+    if (status === 'approved' || status === 'paused') {
+        // שניהם עברו אישור Meta בעבר ועלולים להחזיק קמפיינים פעילים.
+        // השרת בודק קמפיינים פעילים ויחסום אם יש — מזהירים בdialog
+        // כדי שהמשתמש יבין למה מחיקה עלולה להיכשל.
+        const status_label = status === 'approved' ? 'מאושרת' : 'מושהית';
+        msg = `אזהרה: התבנית "${name}" ${status_label} ע"י Meta. `
+            + `אם יש קמפיינים פעילים שמסתמכים עליה — המחיקה תיחסם `
+            + `אוטומטית. למחוק בכל זאת?`;
+    } else if (status === 'pending') {
+        msg = `התבנית "${name}" נמצאת בסקירת Meta. מחיקה תבטל את `
+            + `הביקורת. למחוק?`;
+    } else {
+        msg = `למחוק את התבנית "${name}"?`;
+    }
+    return confirm(msg);
+}
+</script>
+
+<!-- טבלת תבניות -->
+<div class="card animate-slide-up stagger-3">
+    <div class="card-header">
+        <span><i class="bi bi-list-check"></i> תבניות ({{ templates|length }})</span>
+    </div>
+    <div class="card-body" style="padding: 0;">
+        {% if templates %}
+        <div style="overflow-x: auto;">
+        <table class="data-table" style="width: 100%;">
+            <thead>
+                <tr>
+                    <th>שם תבנית</th>
+                    <th>קטגוריה</th>
+                    <th>סטטוס</th>
+                    <th>תוכן</th>
+                    <th>משתנים</th>
+                    <th>כפתורים</th>
+                    <th>פעולות</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for t in templates %}
+                <tr>
+                    <td>
+                        <code style="font-size: 0.85em;">{{ t.friendly_name }}</code>
+                    </td>
+                    <td>
+                        {% set _cat_class = {
+                            'MARKETING': 'cat-marketing',
+                            'UTILITY': 'cat-utility',
+                            'AUTHENTICATION': 'cat-auth',
+                        }.get(t.category, 'cat-unknown') %}
+                        {% set _cat_label = {
+                            'MARKETING': 'שיווק',
+                            'UTILITY': 'שירות',
+                            'AUTHENTICATION': 'אימות',
+                            'UNKNOWN': 'לא ידוע',
+                        }.get(t.category, t.category) %}
+                        <span class="badge badge-{{ _cat_class }}">
+                            {{ _cat_label }}
+                        </span>
+                    </td>
+                    <td>
+                        {% set badge_class = {
+                            'approved': 'success',
+                            'pending': 'warning',
+                            'rejected': 'danger',
+                            'paused': 'status-muted',
+                            'unsubmitted': 'status-muted'
+                        }.get(t.approval_status, 'status-muted') %}
+                        <span class="badge badge-{{ badge_class }}">
+                            {{ status_labels.get(t.approval_status, t.approval_status) }}
+                        </span>
+                        {% if t.rejection_reason %}
+                        <div class="text-small text-muted" title="{{ t.rejection_reason }}">
+                            <i class="bi bi-exclamation-circle"></i> סיבת דחייה
+                        </div>
+                        {% endif %}
+                    </td>
+                    <td style="max-width: 320px;">
+                        {% if t.header_type and t.header_type != 'none' %}
+                        {# רק אייקון לפי סוג ה-header — בלי טקסט מפורט.
+                           text/image/video/document/location → icons שונים. #}
+                        <div class="text-small text-muted" title="header: {{ t.header_type }}">
+                            {% if t.header_type == 'image' %}
+                            <i class="bi bi-image"></i>
+                            {% elif t.header_type == 'video' %}
+                            <i class="bi bi-camera-video"></i>
+                            {% elif t.header_type == 'document' %}
+                            <i class="bi bi-file-earmark-pdf"></i>
+                            {% elif t.header_type == 'text' %}
+                            <i class="bi bi-type"></i>
+                            {% elif t.header_type == 'location' %}
+                            <i class="bi bi-geo-alt"></i>
+                            {% else %}
+                            <i class="bi bi-paperclip"></i>
+                            {% endif %}
+                        </div>
+                        {% endif %}
+                        <div style="white-space: pre-wrap; font-size: 0.9em;">{{ t.body_text|truncate(200) }}</div>
+                        {% if t.footer_text %}
+                        <div class="text-small text-muted" style="margin-top: 0.25rem; font-style: italic;">
+                            {{ t.footer_text }}
+                        </div>
+                        {% endif %}
+                    </td>
+                    <td>
+                        {% if t.variables %}
+                        {{ t.variables|length }}
+                        <div class="text-small text-muted">
+                            {% for v in t.variables %}{{ "{{" }}{{ v.index }}{{ "}}" }}{% if not loop.last %}, {% endif %}{% endfor %}
+                        </div>
+                        {% else %}
+                        —
+                        {% endif %}
+                    </td>
+                    <td>
+                        {% if t.buttons %}
+                        {{ t.buttons|length }}
+                        {% else %}
+                        —
+                        {% endif %}
+                    </td>
+                    <td>
+                        <div style="display: flex; gap: 0.25rem; flex-wrap: wrap;">
+                        {% if t.approval_status == "approved" %}
+                        <form method="POST" action="/broadcast/campaigns/new" style="margin: 0;">
+                            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                            <input type="hidden" name="template_sid" value="{{ t.content_sid }}">
+                            <button type="submit" class="btn btn-sm btn-primary"
+                                    title="צור קמפיין מהתבנית">
+                                <i class="bi bi-plus-circle"></i> קמפיין
+                            </button>
+                        </form>
+                        {% elif t.approval_status in ("unsubmitted", "rejected") %}
+                            {% if t.approval_status == "unsubmitted" %}
+                            <a href="/broadcast/templates/{{ t.content_sid }}/edit"
+                               class="btn btn-sm btn-secondary"
+                               title="ערוך לפני שליחה לאישור"
+                               aria-label="ערוך תבנית">
+                                <i class="bi bi-pencil"></i>
+                            </a>
+                            {% endif %}
+                            <a href="/broadcast/templates/{{ t.content_sid }}/submit"
+                               class="btn btn-sm btn-primary"
+                               title="שלח את התבנית לאישור Meta דרך Twilio">
+                                <i class="bi bi-send-check"></i> שלח לאישור
+                            </a>
+                        {% elif t.approval_status == "pending" %}
+                        <span class="text-muted text-small">
+                            <i class="bi bi-hourglass-split"></i> ממתינה למטא
+                        </span>
+                        {% endif %}
+
+                        {# מחיקה זמינה בכל הסטטוסים — בעל העסק עשוי
+                           לרצות לנקות תבנית שאינה אקטואלית גם אם
+                           Meta אישרה אותה. הגנות:
+                           - approved: בדיקת קמפיינים פעילים בשרת
+                             (חוסם אם יש), confirm עם אזהרה חזקה.
+                           - pending: confirm מזהיר שה-review ב-Meta
+                             מתבטל בכך.
+                           - שאר הסטטוסים: confirm פשוט. #}
+                        <form method="POST"
+                              action="/broadcast/templates/{{ t.content_sid }}/delete"
+                              style="margin: 0;"
+                              data-template-name="{{ t.friendly_name }}"
+                              data-status="{{ t.approval_status }}"
+                              onsubmit="return wa_confirm_delete(this);">
+                            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                            <button type="submit" class="btn btn-sm btn-soft-danger"
+                                    title="מחיקה מ-Twilio + DB"
+                                    aria-label="מחק תבנית">
+                                <i class="bi bi-trash"></i>
+                            </button>
+                        </form>
+                        </div>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        </div>
+        {% else %}
+        <div style="padding: var(--space-md); text-align: center; color: var(--text-muted);">
+            <i class="bi bi-inbox" style="font-size: 2rem; display: block; margin-bottom: 0.5rem;"></i>
+            אין תבניות מסונכרנות עדיין.
+            {% if status_filter %}
+            נסו לנקות את הסינון או
+            {% endif %}
+            לחצו על "סנכרן מ-Twilio" כדי למשוך תבניות מהחשבון.
+        </div>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}
