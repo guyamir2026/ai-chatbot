@@ -1,0 +1,49 @@
+# ─── Core Libraries ───────────────────────────────────────────────────────────
+
+# Telegram Bot
+python-telegram-bot[ext]
+
+# LLM & Embeddings
+openai
+tiktoken
+
+# Vector Store
+faiss-cpu
+numpy
+
+# Web Admin Panel
+flask
+flask-wtf
+gunicorn
+requests
+
+# Business Hours & Holidays
+holidays
+
+# QR Code Generation
+segno
+
+# Image Processing (logo upload + QR overlay)
+Pillow
+
+# Error Tracking
+sentry-sdk[flask]
+
+# Legal documents rendering (privacy.md / terms.md ב-/legal/* routes)
+markdown
+
+# WhatsApp / Twilio
+twilio
+
+# Google Calendar Sync
+google-api-python-client
+google-auth-oauthlib
+
+# הצפנת סודות במנוחה (utils/crypto.py — refresh tokens, page access tokens של מטא)
+cryptography
+
+# Web Push notifications — התראות לבעל העסק כשהדפדפן/לשונית סגורים
+pywebpush
+
+# Configuration
+python-dotenv
