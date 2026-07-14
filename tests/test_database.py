@@ -1,0 +1,801 @@
+"""
+טסטים למודול בסיס הנתונים — database.py
+
+משתמש ב-SQLite בקובץ זמני. מאתחל את הסכימה המלאה דרך init_db().
+"""
+
+import os
+from unittest.mock import patch
+
+import pytest
+
+
+@pytest.fixture
+def db(tmp_path):
+    """מאתחל DB בקובץ זמני ומחזיר את מודול database מוכן לשימוש."""
+    db_path = tmp_path / "test.db"
+    with patch("ai_chatbot.config.DB_PATH", db_path):
+        import importlib
+        import database
+        importlib.reload(database)  # כדי שישתמש בנתיב החדש
+        database.init_db()
+        yield database
+
+
+class TestKBEntries:
+    def test_add_and_get(self, db):
+        entry_id = db.add_kb_entry("שירותים", "תספורות", "תספורת גברים 50 ש\"ח")
+        assert entry_id > 0
+
+        entry = db.get_kb_entry(entry_id)
+        assert entry is not None
+        assert entry["category"] == "שירותים"
+        assert entry["title"] == "תספורות"
+
+    def test_update(self, db):
+        entry_id = db.add_kb_entry("א", "ב", "תוכן ישן")
+        db.update_kb_entry(entry_id, "א", "ב", "תוכן חדש")
+        entry = db.get_kb_entry(entry_id)
+        assert entry["content"] == "תוכן חדש"
+
+    def test_delete(self, db):
+        entry_id = db.add_kb_entry("א", "ב", "ג")
+        db.delete_kb_entry(entry_id)
+        assert db.get_kb_entry(entry_id) is None
+
+    def test_get_all_entries(self, db):
+        db.add_kb_entry("א", "כותרת1", "תוכן1")
+        db.add_kb_entry("ב", "כותרת2", "תוכן2")
+        entries = db.get_all_kb_entries()
+        assert len(entries) == 2
+
+    def test_get_by_category(self, db):
+        db.add_kb_entry("שירותים", "שירות1", "...")
+        db.add_kb_entry("מידע", "מידע1", "...")
+        services = db.get_all_kb_entries(category="שירותים")
+        assert len(services) == 1
+        assert services[0]["category"] == "שירותים"
+
+    def test_count_entries(self, db):
+        assert db.count_kb_entries() == 0
+        db.add_kb_entry("א", "ב", "ג")
+        assert db.count_kb_entries() == 1
+
+    def test_get_categories(self, db):
+        db.add_kb_entry("קטגוריה_א", "כ1", "ת1")
+        db.add_kb_entry("קטגוריה_ב", "כ2", "ת2")
+        cats = db.get_kb_categories()
+        assert "קטגוריה_א" in cats
+        assert "קטגוריה_ב" in cats
+
+    def test_count_categories(self, db):
+        db.add_kb_entry("א", "כ1", "ת1")
+        db.add_kb_entry("ב", "כ2", "ת2")
+        assert db.count_kb_categories() == 2
+
+
+class TestConversations:
+    def test_save_and_get(self, db):
+        db.save_message("u1", "ישראל", "user", "שלום")
+        db.save_message("u1", "ישראל", "assistant", "היי!")
+        history = db.get_conversation_history("u1")
+        assert len(history) == 2
+        assert history[0]["role"] == "user"
+        assert history[1]["role"] == "assistant"
+
+    def test_limit(self, db):
+        for i in range(30):
+            db.save_message("u2", "יוסי", "user", f"הודעה {i}")
+        history = db.get_conversation_history("u2", limit=10)
+        assert len(history) == 10
+
+    def test_unique_users(self, db):
+        db.save_message("u1", "ישראל", "user", "שלום")
+        db.save_message("u2", "יוסי", "user", "היי")
+        users = db.get_unique_users()
+        assert len(users) == 2
+
+    def test_count_unique_users(self, db):
+        db.save_message("u1", "א", "user", "1")
+        db.save_message("u2", "ב", "user", "2")
+        assert db.count_unique_users() == 2
+
+    def test_get_username_for_user(self, db):
+        db.save_message("u5", "דנה", "user", "שלום")
+        assert db.get_username_for_user("u5") == "דנה"
+        assert db.get_username_for_user("nonexistent") is None
+
+
+class TestConversationSummaries:
+    def test_save_and_get_summary(self, db):
+        db.save_conversation_summary("u1", "סיכום שיחה", 5, last_summarized_message_id=10)
+        summary = db.get_latest_summary("u1")
+        assert summary is not None
+        assert summary["summary_text"] == "סיכום שיחה"
+        assert summary["message_count"] == 5
+
+    def test_summary_replaces_previous(self, db):
+        db.save_conversation_summary("u1", "סיכום ראשון", 5, last_summarized_message_id=5)
+        db.save_conversation_summary("u1", "סיכום שני", 3, last_summarized_message_id=8)
+        summary = db.get_latest_summary("u1")
+        assert summary["summary_text"] == "סיכום שני"
+        # message_count מצטבר
+        assert summary["message_count"] == 8
+
+    def test_unsummarized_count(self, db):
+        for i in range(15):
+            db.save_message("u3", "test", "user", f"msg {i}")
+        assert db.get_unsummarized_message_count("u3") == 15
+
+    def test_no_summary_returns_none(self, db):
+        assert db.get_latest_summary("nonexistent") is None
+
+
+class TestAgentRequests:
+    def test_create_and_get(self, db):
+        req_id = db.create_agent_request("u1", "ישראל", "עזרה")
+        req = db.get_agent_request(req_id)
+        assert req is not None
+        assert req["status"] == "pending"
+
+    def test_update_status(self, db):
+        req_id = db.create_agent_request("u1", "ישראל")
+        db.update_agent_request_status(req_id, "handled")
+        req = db.get_agent_request(req_id)
+        assert req["status"] == "handled"
+
+    def test_count_by_status(self, db):
+        db.create_agent_request("u1", "א")
+        db.create_agent_request("u2", "ב")
+        assert db.count_agent_requests("pending") == 2
+        assert db.count_agent_requests("handled") == 0
+
+
+class TestAppointments:
+    def test_create_and_get(self, db):
+        appt_id = db.create_appointment("u1", "ישראל", service="תספורת")
+        appt = db.get_appointment(appt_id)
+        assert appt is not None
+        assert appt["service"] == "תספורת"
+        assert appt["status"] == "pending"
+
+    def test_update_status(self, db):
+        appt_id = db.create_appointment("u1", "ישראל")
+        db.update_appointment_status(appt_id, "confirmed")
+        assert db.get_appointment(appt_id)["status"] == "confirmed"
+
+    def test_count(self, db):
+        db.create_appointment("u1", "א")
+        db.create_appointment("u2", "ב")
+        assert db.count_appointments() == 2
+        assert db.count_appointments("pending") == 2
+
+    def test_duplicate_datetime_blocked(self, db):
+        """אותו משתמש לא יכול לקבוע שני תורים לאותו תאריך ושעה."""
+        import sqlite3
+        db.create_appointment("u1", "א", preferred_date="2026-04-01", preferred_time="10:00")
+        with pytest.raises(sqlite3.IntegrityError):
+            db.create_appointment("u1", "א", preferred_date="2026-04-01", preferred_time="10:00")
+
+    def test_duplicate_datetime_allowed_different_user(self, db):
+        """משתמשים שונים יכולים לקבוע תור לאותו תאריך ושעה."""
+        db.create_appointment("u1", "א", preferred_date="2026-04-01", preferred_time="10:00")
+        db.create_appointment("u2", "ב", preferred_date="2026-04-01", preferred_time="10:00")
+        assert db.count_appointments() == 2
+
+    def test_empty_datetime_not_constrained(self, db):
+        """תורים ללא תאריך/שעה (ברירת מחדל) לא חוסמים אחד את השני."""
+        db.create_appointment("u1", "א")
+        db.create_appointment("u1", "ב")
+        assert db.count_appointments() == 2
+
+    def test_expire_past_appointments(self, db):
+        """תורים ממתינים שהתאריך שלהם עבר מסומנים כ-passed."""
+        db.create_appointment("u1", "א", preferred_date="2020-01-01", preferred_time="10:00")
+        db.create_appointment("u2", "ב", preferred_date="2099-12-31", preferred_time="10:00")
+        db.create_appointment("u3", "ג", preferred_date="2020-06-01", preferred_time="14:00")
+        # confirmed לא צריך להשתנות גם אם עבר
+        appt_id = db.create_appointment("u4", "ד", preferred_date="2020-03-01", preferred_time="09:00")
+        db.update_appointment_status(appt_id, "confirmed")
+
+        expired = db.expire_past_appointments()
+        assert expired == 2  # רק u1 ו-u3 (pending שעברו)
+        assert db.count_appointments("passed") == 2
+        assert db.count_appointments("pending") == 1  # u2 — עתידי
+        assert db.count_appointments("confirmed") == 1  # u4 — לא משתנה
+
+    def test_get_appointments_for_reminder(self, db):
+        """רק תורים מאושרים שלא נשלחה להם תזכורת מוחזרים."""
+        # מאושר — צריך להיכלל
+        a1 = db.create_appointment("u1", "א", preferred_date="2026-04-01", preferred_time="10:00")
+        db.update_appointment_status(a1, "confirmed")
+        # ממתין — לא צריך להיכלל
+        db.create_appointment("u2", "ב", preferred_date="2026-04-01", preferred_time="11:00")
+        # מאושר אבל כבר נשלחה תזכורת
+        a3 = db.create_appointment("u3", "ג", preferred_date="2026-04-01", preferred_time="12:00")
+        db.update_appointment_status(a3, "confirmed")
+        db.mark_reminder_sent(a3)
+        # מאושר אבל תאריך אחר
+        a4 = db.create_appointment("u4", "ד", preferred_date="2026-04-02", preferred_time="10:00")
+        db.update_appointment_status(a4, "confirmed")
+
+        results = db.get_appointments_for_reminder("2026-04-01")
+        assert len(results) == 1
+        assert results[0]["user_id"] == "u1"
+
+    def test_mark_reminder_sent(self, db):
+        """סימון תזכורת שנשלחה."""
+        appt_id = db.create_appointment("u1", "א", preferred_date="2026-04-01", preferred_time="10:00")
+        db.update_appointment_status(appt_id, "confirmed")
+        assert db.get_appointment(appt_id)["reminder_sent"] == 0
+        db.mark_reminder_sent(appt_id)
+        assert db.get_appointment(appt_id)["reminder_sent"] == 1
+
+    def test_get_pending_appointments_for_user(self, db):
+        """מחזיר תורים פעילים (pending + confirmed) עתידיים של המשתמש."""
+        # pending עתידי — צריך להיכלל
+        db.create_appointment("u1", "א", preferred_date="2099-01-01", preferred_time="10:00")
+        # confirmed עתידי — צריך להיכלל גם
+        a2 = db.create_appointment("u1", "א", preferred_date="2099-01-02", preferred_time="11:00")
+        db.update_appointment_status(a2, "confirmed")
+        # cancelled — לא צריך להיכלל
+        a3 = db.create_appointment("u1", "א", preferred_date="2099-01-03", preferred_time="12:00")
+        db.update_appointment_status(a3, "cancelled")
+        # pending של משתמש אחר
+        db.create_appointment("u2", "ב", preferred_date="2099-01-01", preferred_time="10:00")
+        # pending שעבר
+        db.create_appointment("u1", "א", preferred_date="2020-01-01", preferred_time="10:00")
+
+        results = db.get_pending_appointments_for_user("u1")
+        assert len(results) == 2
+        assert results[0]["preferred_date"] == "2099-01-01"
+        assert results[1]["preferred_date"] == "2099-01-02"
+
+    def test_cancel_appointment_by_user(self, db):
+        """לקוח יכול לבטל רק תור pending שלו."""
+        a1 = db.create_appointment("u1", "א", preferred_date="2099-01-01", preferred_time="10:00")
+        # ביטול מצליח
+        assert db.cancel_appointment(a1, "u1") is True
+        assert db.get_appointment(a1)["status"] == "cancelled"
+
+    def test_cancel_appointment_wrong_user(self, db):
+        """משתמש לא יכול לבטל תור של אחר."""
+        a1 = db.create_appointment("u1", "א", preferred_date="2099-01-01", preferred_time="10:00")
+        assert db.cancel_appointment(a1, "u2") is False
+        assert db.get_appointment(a1)["status"] == "pending"
+
+    def test_cancel_confirmed_allowed(self, db):
+        """לקוח יכול לבטל גם תור מאושר."""
+        a1 = db.create_appointment("u1", "א", preferred_date="2099-01-01", preferred_time="10:00")
+        db.update_appointment_status(a1, "confirmed")
+        assert db.cancel_appointment(a1, "u1") is True
+        assert db.get_appointment(a1)["status"] == "cancelled"
+
+    def test_update_appointment_date_time(self, db):
+        """עדכון תאריך ושעה של תור קיים."""
+        a1 = db.create_appointment("u1", "א", preferred_date="2099-01-01", preferred_time="10:00")
+        assert db.update_appointment(a1, "u1", preferred_date="2099-02-15", preferred_time="14:00")
+        updated = db.get_appointment(a1)
+        assert updated["preferred_date"] == "2099-02-15"
+        assert updated["preferred_time"] == "14:00"
+
+    def test_update_appointment_partial(self, db):
+        """עדכון חלקי — רק תאריך."""
+        a1 = db.create_appointment("u1", "א", preferred_date="2099-01-01", preferred_time="10:00")
+        assert db.update_appointment(a1, "u1", preferred_date="2099-03-01")
+        updated = db.get_appointment(a1)
+        assert updated["preferred_date"] == "2099-03-01"
+        assert updated["preferred_time"] == "10:00"  # לא השתנה
+
+    def test_update_appointment_wrong_user(self, db):
+        """לא ניתן לעדכן תור של משתמש אחר."""
+        a1 = db.create_appointment("u1", "א", preferred_date="2099-01-01", preferred_time="10:00")
+        assert db.update_appointment(a1, "u2", preferred_date="2099-02-15") is False
+
+    def test_update_cancelled_appointment_fails(self, db):
+        """לא ניתן לעדכן תור שבוטל."""
+        a1 = db.create_appointment("u1", "א", preferred_date="2099-01-01", preferred_time="10:00")
+        db.cancel_appointment(a1, "u1")
+        assert db.update_appointment(a1, "u1", preferred_date="2099-02-15") is False
+
+    def test_is_returning_customer_with_confirmed(self, db):
+        """לקוח עם תור מאושר מזוהה כלקוח חוזר."""
+        assert db.is_returning_customer("u1") is False
+        db.create_appointment("u1", "א", preferred_date="2025-01-01", preferred_time="10:00")
+        # תור ממתין — עדיין לא לקוח חוזר
+        assert db.is_returning_customer("u1") is False
+        # אישור התור — עכשיו לקוח חוזר
+        appts = db.get_appointments()
+        db.update_appointment_status(appts[0]["id"], "confirmed")
+        assert db.is_returning_customer("u1") is True
+
+    def test_is_returning_customer_expired_pending_not_returning(self, db):
+        """תור pending שפג תוקפו (passed) לא נחשב לקוח חוזר — מעולם לא אושר."""
+        a1 = db.create_appointment("u1", "א", preferred_date="2020-01-01", preferred_time="10:00")
+        db.update_appointment_status(a1, "passed")
+        assert db.is_returning_customer("u1") is False
+
+    def test_is_returning_customer_cancelled_not_returning(self, db):
+        """לקוח עם תור מבוטל בלבד לא נחשב לקוח חוזר."""
+        a1 = db.create_appointment("u1", "א", preferred_date="2025-06-01", preferred_time="10:00")
+        db.update_appointment_status(a1, "cancelled")
+        assert db.is_returning_customer("u1") is False
+
+    def test_is_returning_customer_future_confirmed_not_returning(self, db):
+        """לקוח עם תור עתידי מאושר בלבד לא נחשב לקוח חוזר — עדיין לא היה."""
+        a1 = db.create_appointment("u1", "א", preferred_date="2099-01-01", preferred_time="10:00")
+        db.update_appointment_status(a1, "confirmed")
+        assert db.is_returning_customer("u1") is False
+
+
+class TestAppointmentsBusyRanges:
+    """טסטים ל-get_appointments_busy_ranges — כולל exclude_appointment_id.
+
+    exclude_appointment_id הוא הפיצוי לבאג "כל שעה תפוסה" ב-auto_with_check:
+    ההחלטה רצה אחרי create_appointment, אז בלי החרגת התור-עצמו הוא נספר
+    כטווח תפוס וחוסם את השעה של עצמו.
+    """
+
+    def test_includes_pending_and_confirmed(self, db):
+        """תורים pending/confirmed נספרים כטווחים תפוסים."""
+        db.create_appointment("u1", "א", preferred_date="2099-05-06", preferred_time="10:00")
+        a2 = db.create_appointment("u2", "ב", preferred_date="2099-05-06", preferred_time="12:00")
+        db.update_appointment_status(a2, "confirmed", confirmed_duration_minutes=60)
+        # תור מבוטל — לא נספר
+        a3 = db.create_appointment("u3", "ג", preferred_date="2099-05-06", preferred_time="14:00")
+        db.update_appointment_status(a3, "cancelled")
+
+        ranges = db.get_appointments_busy_ranges("2099-05-06")
+        # 10:00 (600 דק') ו-12:00 (720 דק') — לא 14:00 (מבוטל)
+        starts = sorted(r[0] for r in ranges)
+        assert starts == [600, 720]
+
+    def test_exclude_removes_only_that_appointment(self, db):
+        """exclude_appointment_id מסיר רק את התור שצוין — לא אחרים."""
+        a1 = db.create_appointment("u1", "א", preferred_date="2099-05-06", preferred_time="10:00")
+        db.create_appointment("u2", "ב", preferred_date="2099-05-06", preferred_time="12:00")
+
+        ranges = db.get_appointments_busy_ranges("2099-05-06", exclude_appointment_id=a1)
+        starts = sorted(r[0] for r in ranges)
+        # רק 12:00 (720) נשאר — 10:00 הוחרג
+        assert starts == [720]
+
+    def test_exclude_self_frees_own_slot(self, db):
+        """התרחיש המרכזי: החרגת התור-עצמו משחררת את השעה שלו.
+
+        רגרסיה ל-'auto_with_check ⇒ כל שעה תפוסה': התור היחיד ביום הוא
+        זה שזה עתה נוצר, ובלי exclude הוא חוסם את עצמו.
+        """
+        appt_id = db.create_appointment(
+            "u1", "א", preferred_date="2099-05-06", preferred_time="09:30",
+        )
+        # בלי exclude — התור-עצמו נספר
+        assert db.get_appointments_busy_ranges("2099-05-06") != []
+        # עם exclude — היום ריק מבחינת ההחלטה
+        assert db.get_appointments_busy_ranges(
+            "2099-05-06", exclude_appointment_id=appt_id,
+        ) == []
+
+
+class TestBusinessHours:
+    def test_upsert_and_get(self, db):
+        db.upsert_business_hours(0, "09:00", "17:00", False)
+        hours = db.get_business_hours_for_day(0)
+        assert hours is not None
+        assert hours["open_time"] == "09:00"
+        assert hours["close_time"] == "17:00"
+        assert hours["is_closed"] == 0
+
+    def test_upsert_update(self, db):
+        db.upsert_business_hours(1, "09:00", "17:00", False)
+        db.upsert_business_hours(1, "10:00", "18:00", False)
+        hours = db.get_business_hours_for_day(1)
+        assert hours["open_time"] == "10:00"
+
+    def test_get_all(self, db):
+        for day in range(7):
+            db.upsert_business_hours(day, "09:00", "17:00", day == 6)
+        all_hours = db.get_all_business_hours()
+        assert len(all_hours) == 7
+
+    def test_seed_defaults(self, db):
+        db.seed_default_business_hours()
+        all_hours = db.get_all_business_hours()
+        assert len(all_hours) == 7
+        # שבת סגור
+        saturday = [h for h in all_hours if h["day_of_week"] == 6][0]
+        assert saturday["is_closed"] == 1
+
+
+class TestSpecialDays:
+    def test_add_and_get(self, db):
+        sd_id = db.add_special_day("2026-03-01", "יום מיוחד", is_closed=True)
+        sd = db.get_special_day_by_date("2026-03-01")
+        assert sd is not None
+        assert sd["name"] == "יום מיוחד"
+
+    def test_replace_on_same_date(self, db):
+        db.add_special_day("2026-03-01", "ישן")
+        db.add_special_day("2026-03-01", "חדש")
+        sd = db.get_special_day_by_date("2026-03-01")
+        assert sd["name"] == "חדש"
+
+    def test_delete(self, db):
+        sd_id = db.add_special_day("2026-04-01", "חג")
+        db.delete_special_day(sd_id)
+        assert db.get_special_day_by_date("2026-04-01") is None
+
+
+class TestVacationMode:
+    def test_default_inactive(self, db):
+        vacation = db.get_vacation_mode()
+        assert vacation["is_active"] == 0
+
+    def test_activate_and_deactivate(self, db):
+        db.update_vacation_mode(True, "2026-04-01", "אנחנו בחופשה")
+        vacation = db.get_vacation_mode()
+        assert vacation["is_active"] == 1
+        assert vacation["vacation_end_date"] == "2026-04-01"
+
+        db.update_vacation_mode(False)
+        vacation = db.get_vacation_mode()
+        assert vacation["is_active"] == 0
+
+
+class TestLiveChats:
+    def test_start_and_check(self, db):
+        db.start_live_chat("u1", "ישראל")
+        assert db.is_live_chat_active("u1") is True
+        assert db.count_active_live_chats() == 1
+
+    def test_end_chat(self, db):
+        db.start_live_chat("u1")
+        db.end_live_chat("u1")
+        assert db.is_live_chat_active("u1") is False
+
+    def test_start_closes_previous(self, db):
+        """פתיחת צ'אט חדש סוגרת את הקודם."""
+        db.start_live_chat("u1")
+        db.start_live_chat("u1")
+        assert db.count_active_live_chats() == 1
+
+
+class TestSubscriptions:
+    def test_default_subscribed(self, db):
+        assert db.is_user_subscribed("new_user") is True
+
+    def test_unsubscribe(self, db):
+        db.ensure_user_subscribed("u1")
+        db.unsubscribe_user("u1")
+        assert db.is_user_subscribed("u1") is False
+
+    def test_resubscribe(self, db):
+        db.ensure_user_subscribed("u1")
+        db.unsubscribe_user("u1")
+        db.resubscribe_user("u1")
+        assert db.is_user_subscribed("u1") is True
+
+
+class TestReferrals:
+    def test_generate_code(self, db):
+        code = db.generate_referral_code("u1")
+        assert code.startswith("REF_")
+        # אותו קוד בקריאה שנייה
+        assert db.generate_referral_code("u1") == code
+
+    def test_register_referral(self, db):
+        code = db.generate_referral_code("referrer")
+        assert db.register_referral(code, "referred") is True
+
+    def test_self_referral_blocked(self, db):
+        code = db.generate_referral_code("u1")
+        assert db.register_referral(code, "u1") is False
+
+    def test_double_referral_blocked(self, db):
+        code = db.generate_referral_code("referrer")
+        db.register_referral(code, "referred")
+        assert db.register_referral(code, "referred") is False
+
+    def test_referral_stats(self, db):
+        stats = db.get_referral_stats()
+        assert stats["total_referrals"] == 0
+        assert stats["completed_referrals"] == 0
+
+    def test_mark_sent_atomic(self, db):
+        """mark_referral_code_as_sent — רק תהליך אחד מצליח."""
+        db.generate_referral_code("u1")
+        assert db.mark_referral_code_as_sent("u1") is True
+        # קריאה שנייה — כבר מסומן
+        assert db.mark_referral_code_as_sent("u1") is False
+
+
+class TestBroadcast:
+    def test_create_and_get(self, db):
+        bc_id = db.create_broadcast("שלום לכולם!", "all", 100)
+        broadcasts = db.get_all_broadcasts()
+        assert len(broadcasts) == 1
+        assert broadcasts[0]["message_text"] == "שלום לכולם!"
+        assert broadcasts[0]["status"] == "queued"
+
+    def test_update_progress(self, db):
+        bc_id = db.create_broadcast("הודעה", "all", 50)
+        db.update_broadcast_progress(bc_id, 25, 2)
+        broadcasts = db.get_all_broadcasts()
+        assert broadcasts[0]["sent_count"] == 25
+        assert broadcasts[0]["status"] == "sending"
+
+    def test_complete_broadcast(self, db):
+        bc_id = db.create_broadcast("הודעה", "all", 10)
+        db.complete_broadcast(bc_id, 9, 1)
+        broadcasts = db.get_all_broadcasts()
+        assert broadcasts[0]["status"] == "completed"
+        assert broadcasts[0]["sent_count"] == 9
+
+    def test_fail_broadcast_preserves_counts(self, db):
+        """כשנכשל — לא דורס מונים שכבר נכתבו."""
+        bc_id = db.create_broadcast("הודעה", "all", 100)
+        db.update_broadcast_progress(bc_id, 50, 3)
+        db.fail_broadcast(bc_id)  # בלי מונים — שומר על הערכים מ-DB
+        broadcasts = db.get_all_broadcasts()
+        assert broadcasts[0]["status"] == "failed"
+        assert broadcasts[0]["sent_count"] == 50
+        assert broadcasts[0]["failed_count"] == 3
+
+
+class TestBotSettings:
+    def test_default_settings(self, db):
+        """ברירת מחדל — טון ידידותי, בלי ביטויים מותאמים."""
+        settings = db.get_bot_settings()
+        assert settings["tone"] == "friendly"
+        assert settings["custom_phrases"] == ""
+
+    def test_update_tone(self, db):
+        """עדכון טון תקשורת."""
+        db.update_bot_settings("formal", "")
+        settings = db.get_bot_settings()
+        assert settings["tone"] == "formal"
+
+    def test_update_custom_phrases(self, db):
+        """עדכון ביטויים מותאמים אישית."""
+        db.update_bot_settings("friendly", "אהלן, בשמחה, בכיף")
+        settings = db.get_bot_settings()
+        assert settings["custom_phrases"] == "אהלן, בשמחה, בכיף"
+
+    def test_update_tone_and_phrases(self, db):
+        """עדכון טון וביטויים ביחד."""
+        db.update_bot_settings("luxury", "בוודאי, לשירותך")
+        settings = db.get_bot_settings()
+        assert settings["tone"] == "luxury"
+        assert settings["custom_phrases"] == "בוודאי, לשירותך"
+
+    def test_invalid_tone_ignored(self, db):
+        """טון לא חוקי — לא מעדכן."""
+        db.update_bot_settings("invalid_tone")
+        settings = db.get_bot_settings()
+        assert settings["tone"] == "friendly"  # נשאר ברירת מחדל
+
+
+class TestAnalytics:
+    """טסטים לפונקציות אנליטיקה."""
+
+    def test_analytics_summary_empty(self, db):
+        """סיכום על DB ריק — אפסים בלי שגיאות."""
+        summary = db.get_analytics_summary(30)
+        assert summary["total_user_messages"] == 0
+        assert summary["unique_users"] == 0
+        assert summary["fallback_rate"] == 0
+
+    def test_analytics_summary_with_data(self, db):
+        """סיכום עם הודעות, שאלות ללא מענה, ובקשות נציג."""
+        db.save_message("u1", "א", "user", "שאלה 1")
+        db.save_message("u1", "א", "assistant", "תשובה 1")
+        db.save_message("u2", "ב", "user", "שאלה 2")
+        db.save_message("u2", "ב", "assistant", "תשובה 2")
+        db.save_unanswered_question("u1", "א", "שאלה ללא מענה")
+        db.create_agent_request("u2", "ב", "צריך עזרה")
+
+        summary = db.get_analytics_summary(30)
+        assert summary["total_user_messages"] == 2
+        assert summary["total_bot_messages"] == 2
+        assert summary["unique_users"] == 2
+        assert summary["unanswered_count"] == 1
+        assert summary["agent_request_count"] == 1
+        assert summary["fallback_rate"] == 50.0  # 1/2 = 50%
+
+    def test_daily_message_counts(self, db):
+        """ספירת הודעות יומית — מקובצות לפי יום בשעון ישראל."""
+        db.save_message("u1", "א", "user", "שלום")
+        db.save_message("u1", "א", "assistant", "היי")
+        daily = db.get_daily_message_counts(30)
+        assert len(daily) >= 1
+        assert daily[0]["user_messages"] == 1
+        assert daily[0]["unique_users"] == 1
+
+    def test_daily_message_counts_israel_timezone(self, db):
+        """הודעה ב-UTC אחרי חצות — מופיעה ביום הנכון בשעון ישראל."""
+        from datetime import datetime, timedelta, timezone
+        from zoneinfo import ZoneInfo
+
+        israel_tz = ZoneInfo("Asia/Jerusalem")
+        # תאריך דינמי (לפני יומיים) — תמיד בתוך חלון ה-30 יום שהטסט בודק,
+        # ללא תלות ב-"היום" של סביבת הריצה. 01:30 UTC = 03:30/04:30 שעון
+        # ישראל (תלוי בשעון קיץ) — תמיד נופל באותו יום אזרחי בישראל.
+        base_date = (datetime.now(tz=timezone.utc) - timedelta(days=2)).date()
+        utc_time = datetime(
+            base_date.year, base_date.month, base_date.day, 1, 30, 0,
+            tzinfo=timezone.utc,
+        )
+        expected_day = utc_time.astimezone(israel_tz).strftime("%Y-%m-%d")
+
+        with db.get_connection() as conn:
+            conn.execute(
+                "INSERT INTO conversations (user_id, username, role, message, created_at)"
+                " VALUES (?, ?, ?, ?, ?)",
+                ("u1", "א", "user", "הודעת לילה",
+                 utc_time.strftime("%Y-%m-%d %H:%M:%S")),
+            )
+
+        daily = db.get_daily_message_counts(30)
+        days_list = [d["day"] for d in daily]
+        assert expected_day in days_list
+
+    def test_hourly_distribution(self, db):
+        """התפלגות לפי שעה — תמיד 24 שעות."""
+        db.save_message("u1", "א", "user", "שלום")
+        hourly = db.get_hourly_distribution(30)
+        assert len(hourly) == 24
+        total = sum(h["message_count"] for h in hourly)
+        assert total == 1
+
+    def test_user_engagement_stats(self, db):
+        """סטטיסטיקות מעורבות — הודעה בודדת = drop-off."""
+        db.save_message("u1", "א", "user", "שאלה יחידה")
+        db.save_message("u2", "ב", "user", "שאלה 1")
+        db.save_message("u2", "ב", "user", "שאלה 2")
+        for i in range(5):
+            db.save_message("u3", "ג", "user", f"הודעה {i}")
+
+        engagement = db.get_user_engagement_stats(30)
+        assert engagement["total_users"] == 3
+        assert engagement["single_message_users"] == 1  # u1
+        assert engagement["engaged_users"] == 1  # u3 (5+ הודעות)
+
+    def test_drop_off_conversations(self, db):
+        """זיהוי משתמשים עם הודעה בודדת."""
+        db.save_message("u1", "א", "user", "שאלה יחידה")
+        db.save_message("u2", "ב", "user", "שאלה 1")
+        db.save_message("u2", "ב", "user", "שאלה 2")
+
+        drop_offs = db.get_conversations_with_drop_off(30)
+        assert len(drop_offs) == 1
+        assert drop_offs[0]["user_id"] == "u1"
+
+    def test_top_unanswered_questions(self, db):
+        """שאלות חמות ללא מענה — ממוינות לפי כמות."""
+        db.save_unanswered_question("u1", "א", "מה המחיר?")
+        db.save_unanswered_question("u2", "ב", "מה המחיר?")
+        db.save_unanswered_question("u3", "ג", "שאלה אחרת")
+
+        top = db.get_top_unanswered_questions(30, limit=5)
+        assert len(top) == 2
+        assert top[0]["question"] == "מה המחיר?"
+        assert top[0]["ask_count"] == 2
+
+    def test_popular_kb_sources(self, db):
+        """מקורות ידע שצוטטו הכי הרבה — מפרק שילובים למקורות בודדים."""
+        db.save_message("u1", "א", "assistant", "תשובה", sources="שירותים > תספורות")
+        db.save_message("u2", "ב", "assistant", "תשובה 2", sources="שירותים > תספורות, מחירים > מבצעים")
+        db.save_message("u3", "ג", "assistant", "תשובה 3", sources="מחירים > מבצעים")
+
+        popular = db.get_popular_kb_sources(30, limit=5)
+        # "שירותים > תספורות" מופיע ב-2 הודעות, "מחירים > מבצעים" ב-2 הודעות
+        assert len(popular) == 2
+        sources_dict = {s["sources"]: s["cite_count"] for s in popular}
+        assert sources_dict["שירותים > תספורות"] == 2
+        assert sources_dict["מחירים > מבצעים"] == 2
+
+
+class TestUsersTable:
+    """טסטים לטבלת users ופונקציות סינון."""
+
+    def test_upsert_user_creates(self, db):
+        """יצירת משתמש חדש."""
+        db.upsert_user("u1", "דני", "telegram")
+        users = db.get_users_filtered()
+        assert len(users) == 1
+        assert users[0]["user_id"] == "u1"
+        assert users[0]["username"] == "דני"
+        assert users[0]["message_count"] == 1
+
+    def test_upsert_user_increments(self, db):
+        """קריאה חוזרת מגדילה מונה הודעות ומעדכנת last_active_at."""
+        db.upsert_user("u1", "דני", "telegram")
+        db.upsert_user("u1", "דני", "telegram")
+        db.upsert_user("u1", "דני", "telegram")
+        users = db.get_users_filtered()
+        assert len(users) == 1
+        assert users[0]["message_count"] == 3
+
+    def test_upsert_user_updates_username(self, db):
+        """עדכון שם משתמש בקריאה חוזרת."""
+        db.upsert_user("u1", "דני", "telegram")
+        db.upsert_user("u1", "דניאל", "telegram")
+        users = db.get_users_filtered()
+        assert users[0]["username"] == "דניאל"
+
+    def test_upsert_user_keeps_username_on_empty(self, db):
+        """לא דורס שם קיים כששם ריק."""
+        db.upsert_user("u1", "דני", "telegram")
+        db.upsert_user("u1", "", "telegram")
+        users = db.get_users_filtered()
+        assert users[0]["username"] == "דני"
+
+    def test_count_users_filtered(self, db):
+        """ספירת משתמשים — ללא סינון."""
+        db.upsert_user("u1", "א", "telegram")
+        db.upsert_user("u2", "ב", "whatsapp")
+        assert db.count_users_filtered() == 2
+
+    def test_filter_by_search(self, db):
+        """סינון לפי חיפוש חופשי."""
+        db.upsert_user("u1", "דני כהן", "telegram")
+        db.upsert_user("u2", "שרה לוי", "telegram")
+        users = db.get_users_filtered(search="דני")
+        assert len(users) == 1
+        assert users[0]["user_id"] == "u1"
+
+    def test_filter_by_search_user_id(self, db):
+        """חיפוש לפי user_id."""
+        db.upsert_user("12345", "א", "telegram")
+        db.upsert_user("67890", "ב", "telegram")
+        users = db.get_users_filtered(search="123")
+        assert len(users) == 1
+        assert users[0]["user_id"] == "12345"
+
+    def test_filter_excludes_unsubscribed(self, db):
+        """משתמש שביטל הרשמה לא מופיע בסינון."""
+        db.upsert_user("u1", "א", "telegram")
+        db.upsert_user("u2", "ב", "telegram")
+        db.unsubscribe_user("u2")
+        users = db.get_users_filtered()
+        assert len(users) == 1
+        assert users[0]["user_id"] == "u1"
+
+    def test_pagination(self, db):
+        """Pagination עם limit/offset."""
+        for i in range(5):
+            db.upsert_user(f"u{i}", f"שם{i}", "telegram")
+        page1 = db.get_users_filtered(limit=2, offset=0)
+        page2 = db.get_users_filtered(limit=2, offset=2)
+        assert len(page1) == 2
+        assert len(page2) == 2
+        # אין חפיפה בין הדפים
+        ids1 = {u["user_id"] for u in page1}
+        ids2 = {u["user_id"] for u in page2}
+        assert ids1.isdisjoint(ids2)
+
+    def test_custom_recipients_with_channel(self, db):
+        """שליפת נמענים לפי רשימת IDs."""
+        db.upsert_user("u1", "א", "telegram")
+        db.upsert_user("u2", "ב", "whatsapp")
+        db.upsert_user("u3", "ג", "telegram")
+        recipients = db.get_custom_recipients_with_channel(["u1", "u3"])
+        assert len(recipients) == 2
+        ids = {r["user_id"] for r in recipients}
+        assert ids == {"u1", "u3"}
+
+    def test_custom_recipients_excludes_unsubscribed(self, db):
+        """שליפת נמענים custom מסננת משתמשים שביטלו הרשמה."""
+        db.upsert_user("u1", "א", "telegram")
+        db.upsert_user("u2", "ב", "telegram")
+        db.unsubscribe_user("u2")
+        recipients = db.get_custom_recipients_with_channel(["u1", "u2"])
+        assert len(recipients) == 1
+        assert recipients[0]["user_id"] == "u1"
+
+    def test_create_broadcast_custom(self, db):
+        """יצירת broadcast עם audience=custom."""
+        bc_id = db.create_broadcast("הודעה מותאמת", "custom", 5)
+        broadcasts = db.get_all_broadcasts()
+        assert len(broadcasts) == 1
+        assert broadcasts[0]["audience"] == "custom"
