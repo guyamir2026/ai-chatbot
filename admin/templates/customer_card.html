@@ -1,0 +1,238 @@
+{% extends "base.html" %}
+{% from "_macros/channel_badge.html" import channel_badge %}
+
+{% block content %}
+<div class="page-header">
+    <h1>
+        <i class="bi bi-person-circle"></i>
+        כרטיס לקוח: {{ card.display_name | mask_name }}
+    </h1>
+    <p class="text-muted">
+        <a href="{{ url_for('customers') }}" class="text-muted">
+            <i class="bi bi-arrow-right"></i> חזרה לרשימת לקוחות
+        </a>
+    </p>
+</div>
+
+<div class="content-two-col">
+    {# ── עמודה ראשית: מידע + היסטוריה ── #}
+    <div>
+        {# פרטי בסיס #}
+        <div class="card mb-3">
+            <div class="card-header">
+                <span><i class="bi bi-info-circle"></i> פרטים</span>
+                {{ channel_badge(card.channel) }}
+            </div>
+            <div class="card-body">
+                <table style="width: 100%;">
+                    <tr>
+                        <td style="font-weight: 600; width: 140px;">שם</td>
+                        <td>{{ card.display_name | mask_name }}</td>
+                    </tr>
+                    {# מזהה — מותאם לערוץ. טלגרם: @username. וואטסאפ: טלפון
+                       (זה ה-user_id). מטא: PSID/IGSID raw (אין username
+                       זמין עד שמיישמים User Profile API ייעודי). #}
+                    {% if card.channel == 'telegram' %}
+                    <tr>
+                        <td style="font-weight: 600;">מזהה</td>
+                        <td class="text-small text-muted">
+                            {% if card.telegram_username %}
+                            @{{ card.telegram_username | mask_username }}
+                            {% else %}
+                            (לא זמין) — ID: {{ card.user_id | mask_name }}
+                            {% endif %}
+                        </td>
+                    </tr>
+                    {% if card.phone_number %}
+                    <tr>
+                        <td style="font-weight: 600;">טלפון</td>
+                        <td>{{ card.phone_number | mask_phone }}</td>
+                    </tr>
+                    {% endif %}
+                    {% elif card.channel == 'whatsapp' %}
+                    {# WhatsApp — user_id == phone, מציגים פעם אחת #}
+                    <tr>
+                        <td style="font-weight: 600;">טלפון</td>
+                        <td>{{ card.user_id | mask_phone }}</td>
+                    </tr>
+                    {% elif card.channel in ('meta_ig', 'meta_msg') %}
+                    <tr>
+                        <td style="font-weight: 600;">
+                            {% if card.channel == 'meta_ig' %}IGSID{% else %}PSID{% endif %}
+                        </td>
+                        <td class="text-small text-muted">
+                            {{ card.external_user_id or card.user_id }}
+                        </td>
+                    </tr>
+                    {% endif %}
+                    <tr>
+                        <td style="font-weight: 600;">כניסה ראשונה לבוט</td>
+                        <td>{{ card.first_seen_at | il_datetime }}</td>
+                    </tr>
+                    <tr>
+                        <td style="font-weight: 600;">פעיל לאחרונה</td>
+                        <td>{{ card.last_active_at | il_datetime }}</td>
+                    </tr>
+                    <tr>
+                        <td style="font-weight: 600;">סה"כ הודעות</td>
+                        <td>{{ card.message_count }}</td>
+                    </tr>
+                    <tr>
+                        <td style="font-weight: 600;">תורים שאושרו</td>
+                        <td><strong>{{ card.appt_count_confirmed }}</strong></td>
+                    </tr>
+                    {% if card.last_appointment_date %}
+                    <tr>
+                        <td style="font-weight: 600;">תור אחרון</td>
+                        <td>{{ card.last_appointment_date | il_date }}</td>
+                    </tr>
+                    {% endif %}
+                </table>
+            </div>
+        </div>
+
+        {# שירותים שנבחרו #}
+        {% if card.services_summary %}
+        <div class="card mb-3">
+            <div class="card-header">
+                <span><i class="bi bi-list-check"></i> שירותים שהזמין</span>
+            </div>
+            <div class="card-body">
+                {% for s in card.services_summary %}
+                <div style="display: flex; justify-content: space-between; padding: var(--space-xs) 0; border-bottom: 1px solid var(--border-color);">
+                    <span>{{ s.service }}</span>
+                    <span class="badge badge-secondary">{{ s.c }}</span>
+                </div>
+                {% endfor %}
+            </div>
+        </div>
+        {% endif %}
+
+        {# היסטוריית תורים #}
+        <div class="card">
+            <div class="card-header">
+                <span><i class="bi bi-calendar-check"></i> היסטוריית תורים ({{ card.appointments|length }})</span>
+            </div>
+            <div class="card-body" style="padding: 0;">
+                {% if card.appointments %}
+                <div class="table-wrapper">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>תאריך</th>
+                                <th>שעה</th>
+                                <th>שירות</th>
+                                <th>סטטוס</th>
+                                <th>משך</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for a in card.appointments %}
+                            <tr>
+                                <td>{{ a.preferred_date | il_date }}</td>
+                                <td>{{ a.preferred_time }}</td>
+                                <td>{{ a.service }}</td>
+                                <td>
+                                    {% if a.status == 'confirmed' %}
+                                    <span class="badge badge-success">אושר</span>
+                                    {% elif a.status == 'pending' %}
+                                    <span class="badge badge-warning">ממתין</span>
+                                    {% elif a.status == 'cancelled' %}
+                                    <span class="badge badge-danger">בוטל</span>
+                                    {% elif a.status == 'passed' %}
+                                    <span class="badge badge-muted">עבר</span>
+                                    {% endif %}
+                                </td>
+                                <td class="text-small text-muted">
+                                    {{ a.confirmed_duration_minutes or '—' }}
+                                    {% if a.confirmed_duration_minutes %}דק׳{% endif %}
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+                {% else %}
+                <p class="text-muted text-center" style="padding: var(--space-md);">
+                    אין תורים עדיין.
+                </p>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+
+    {# ── עמודה צדדית: תגיות + הערה ── #}
+    <div>
+        {# תגיות אוטומטיות #}
+        <div class="card mb-3">
+            <div class="card-header">
+                <span><i class="bi bi-tag"></i> תגיות אוטומטיות</span>
+            </div>
+            <div class="card-body">
+                {% if card.auto_tags %}
+                {% for t in card.auto_tags %}
+                    {% if t == 'VIP' %}
+                    <span class="badge badge-warning" style="font-size: 1rem;">⭐ VIP</span>
+                    {% elif t == 'חדש' %}
+                    <span class="badge badge-info" style="font-size: 1rem;">לקוח חדש</span>
+                    {% elif t == 'חוזר' %}
+                    <span class="badge badge-success" style="font-size: 1rem;">לקוח חוזר</span>
+                    {% elif t == 'רדום' %}
+                    <span class="badge badge-muted" style="font-size: 1rem;">רדום (60+ ימים)</span>
+                    {% endif %}
+                {% endfor %}
+                {% else %}
+                <p class="text-small text-muted" style="margin: 0;">
+                    אין תגיות עדיין — מחושבות אוטומטית מהיסטוריית התורים.
+                </p>
+                {% endif %}
+            </div>
+        </div>
+
+        {# טופס הערה + תגיות ידניות #}
+        <div class="card">
+            <div class="card-header">
+                <span><i class="bi bi-pencil-square"></i> הערה ידנית</span>
+            </div>
+            <div class="card-body">
+                <form method="POST"
+                      action="{{ url_for('customer_card_save_note', user_id=card.user_id) }}">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+
+                    <div class="form-group" style="margin-bottom: var(--space-md);">
+                        <label class="form-label" for="customer_note" style="font-weight: 600;">
+                            הערה
+                        </label>
+                        <textarea class="form-control" id="customer_note" name="note"
+                                  rows="4"
+                                  placeholder="כל מידע שתרצה לזכור על הלקוח...">{{ card.note }}</textarea>
+                    </div>
+
+                    <div class="form-group" style="margin-bottom: var(--space-md);">
+                        <label class="form-label" for="customer_tags" style="font-weight: 600;">
+                            תגיות ידניות (מופרדות בפסיק)
+                        </label>
+                        <input type="text" class="form-control" id="customer_tags" name="tags"
+                               value="{{ card.manual_tags | join(', ') }}"
+                               placeholder="למשל: לקוח קבוע, מעדיף בוקר">
+                        <div class="text-small text-muted" style="margin-top: 4px;">
+                            תגיות: מוצגות בטבלה בעמוד הלקוחות.
+                        </div>
+                    </div>
+
+                    {% if card.withhold_reason %}
+                    <div class="alert alert-warning text-small" style="margin-bottom: var(--space-md);">
+                        <i class="bi bi-eye-slash"></i>
+                        ההערה לא נחשפת בעיון לפי בקשה: {{ card.withhold_reason }}
+                    </div>
+                    {% endif %}
+
+                    <button type="submit" class="btn btn-primary">
+                        <i class="bi bi-check-lg"></i> שמירה
+                    </button>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
