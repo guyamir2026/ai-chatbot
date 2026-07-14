@@ -1,0 +1,224 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{ title }} — {{ business_name }}</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Rubik:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        /* עמוד ציבורי — עיצוב בהיר, מובייל-first, RTL */
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+
+        body {
+            font-family: 'Rubik', -apple-system, BlinkMacSystemFont, sans-serif;
+            background: #f8f9fa;
+            color: #1a1a2e;
+            line-height: 1.7;
+            direction: rtl;
+            min-height: 100vh;
+        }
+
+        .page-wrapper {
+            max-width: 640px;
+            margin: 0 auto;
+            padding: 1rem;
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+        }
+
+        /* כותרת עליונה */
+        .page-header {
+            text-align: center;
+            padding: 1.5rem 1rem;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            border-radius: 16px;
+            color: #fff;
+            margin-bottom: 1.5rem;
+            box-shadow: 0 4px 20px rgba(102, 126, 234, 0.3);
+        }
+
+        .page-header h1 {
+            font-size: 1.4rem;
+            font-weight: 700;
+            margin-bottom: 0.25rem;
+        }
+
+        .page-header .business-name {
+            font-size: 0.95rem;
+            opacity: 0.9;
+            font-weight: 400;
+        }
+
+        /* תוכן */
+        .page-content {
+            background: #fff;
+            border-radius: 16px;
+            padding: 1.5rem;
+            box-shadow: 0 2px 12px rgba(0, 0, 0, 0.06);
+            flex: 1;
+        }
+
+        .page-content h2,
+        .page-content .page-title {
+            font-size: 1.2rem;
+            font-weight: 600;
+            color: #1a1a2e;
+            margin-bottom: 1rem;
+            padding-bottom: 0.5rem;
+            border-bottom: 2px solid #667eea;
+        }
+
+        .page-content h3 {
+            font-size: 1.05rem;
+            font-weight: 600;
+            color: #333;
+            margin: 1.25rem 0 0.5rem;
+        }
+
+        .page-content p {
+            margin-bottom: 0.75rem;
+            color: #444;
+        }
+
+        .page-content ul, .page-content ol {
+            padding-right: 1.25rem;
+            margin-bottom: 1rem;
+        }
+
+        .page-content li {
+            margin-bottom: 0.4rem;
+            color: #444;
+        }
+
+        /* טבלת מחירים */
+        .page-content table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 1rem 0;
+            font-size: 0.95rem;
+        }
+
+        .page-content thead {
+            background: #f0f0ff;
+        }
+
+        .page-content th {
+            padding: 0.75rem 0.5rem;
+            text-align: right;
+            font-weight: 600;
+            color: #1a1a2e;
+            border-bottom: 2px solid #667eea;
+            font-size: 0.85rem;
+        }
+
+        .page-content td {
+            padding: 0.65rem 0.5rem;
+            border-bottom: 1px solid #eee;
+            color: #333;
+        }
+
+        .page-content tr:last-child td {
+            border-bottom: none;
+        }
+
+        .page-content tr:hover {
+            background: #fafafe;
+        }
+
+        /* footer */
+        .page-footer {
+            text-align: center;
+            padding: 1.25rem 1rem;
+            margin-top: 1.5rem;
+            background: #fff;
+            border-radius: 16px;
+            box-shadow: 0 2px 12px rgba(0, 0, 0, 0.06);
+            font-size: 0.9rem;
+            color: #666;
+        }
+
+        .page-footer .contact-item {
+            display: inline-block;
+            margin: 0.25rem 0.75rem;
+            color: #555;
+        }
+
+        .page-footer .contact-item a {
+            color: #667eea;
+            text-decoration: none;
+        }
+
+        .page-footer .business-footer-name {
+            font-weight: 600;
+            color: #1a1a2e;
+            margin-bottom: 0.5rem;
+        }
+
+        /* עמוד שגיאה */
+        .error-page {
+            text-align: center;
+            padding: 3rem 1rem;
+        }
+
+        .error-page .error-icon {
+            font-size: 3rem;
+            margin-bottom: 1rem;
+        }
+
+        .error-page h2 {
+            border: none;
+            color: #666;
+        }
+
+        /* רספונסיביות */
+        @media (max-width: 480px) {
+            .page-wrapper { padding: 0.5rem; }
+            .page-header { padding: 1.25rem 0.75rem; border-radius: 12px; }
+            .page-header h1 { font-size: 1.2rem; }
+            .page-content { padding: 1rem; border-radius: 12px; }
+            .page-content th, .page-content td { padding: 0.5rem 0.35rem; font-size: 0.9rem; }
+            .page-footer { border-radius: 12px; }
+        }
+    </style>
+</head>
+<body>
+    <div class="page-wrapper">
+        {% if page %}
+        <header class="page-header">
+            <h1>{{ title or "\u05de\u05d9\u05d3\u05e2" }}</h1>
+            <div class="business-name">{{ business_name }}</div>
+        </header>
+
+        <main class="page-content">
+            {{ content | safe }}
+        </main>
+
+        {% if business_phone or business_address %}
+        <footer class="page-footer">
+            <div class="business-footer-name">{{ business_name }}</div>
+            {% if business_phone %}
+            <span class="contact-item">
+                <a href="tel:{{ business_phone }}">{{ business_phone }}</a>
+            </span>
+            {% endif %}
+            {% if business_address %}
+            <span class="contact-item">{{ business_address }}</span>
+            {% endif %}
+        </footer>
+        {% endif %}
+
+        {% else %}
+        {# עמוד לא נמצא #}
+        <main class="page-content error-page">
+            <div class="error-icon">📄</div>
+            <h2>העמוד לא נמצא</h2>
+            <p>הקישור שגוי או שהעמוד אינו קיים.</p>
+            <p>ניתן לפנות אלינו ישירות לקבלת המידע.</p>
+        </main>
+        {% endif %}
+    </div>
+</body>
+</html>
