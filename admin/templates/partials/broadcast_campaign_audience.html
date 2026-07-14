@@ -1,0 +1,44 @@
+<!-- fragment של מוני קהל, מעודכן ב-HTMX מכל שינוי בבחירת audience_type / inactive_days -->
+
+<div style="display: flex; flex-direction: column; gap: 0.5rem;">
+    <div style="font-size: 1.5rem; font-weight: bold; color: var(--primary);">
+        <i class="bi bi-people-fill"></i>
+        {{ counts.eligible }} נמענים
+    </div>
+
+    {% if counts.eligible == 0 %}
+    <div class="alert alert-warning text-small" style="padding: 0.5rem;">
+        <i class="bi bi-exclamation-triangle"></i>
+        אין נמענים שעומדים בפילטרים. בדקו את הגדרות הקהל.
+    </div>
+    {% endif %}
+
+    <div class="text-small text-muted" style="line-height: 1.7;">
+        <div>סך משתמשי WhatsApp ב-DB: <strong>{{ counts.total_wa_users }}</strong></div>
+        {% if counts.filtered_out_never_opted_in %}
+        <div>
+            <i class="bi bi-x-circle"></i>
+            סוננו: {{ counts.filtered_out_never_opted_in }} לא נתנו opt-in שיווקי
+        </div>
+        {% endif %}
+        {% if counts.filtered_out_opted_out %}
+        <div>
+            <i class="bi bi-x-circle"></i>
+            סוננו: {{ counts.filtered_out_opted_out }} ביקשו להסיר
+        </div>
+        {% endif %}
+        {% if counts.filtered_out_inactive %}
+        <div>
+            <i class="bi bi-x-circle"></i>
+            סוננו: {{ counts.filtered_out_inactive }} מחוץ לטווח פעילות
+        </div>
+        {% endif %}
+    </div>
+
+    {% if template_category == "MARKETING" %}
+    <div class="alert alert-info text-small" style="padding: 0.5rem; margin-top: 0.5rem;">
+        <i class="bi bi-info-circle"></i>
+        <strong>MARKETING:</strong> נשלח רק למי שנתן opt-in מפורש (תיקון 40 לחוק התקשורת).
+    </div>
+    {% endif %}
+</div>
