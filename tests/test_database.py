@@ -574,6 +574,17 @@ class TestBotSettings:
         settings = db.get_bot_settings()
         assert settings["tone"] == "friendly"  # נשאר ברירת מחדל
 
+    def test_booking_enabled_default_and_toggle(self, db):
+        """booking_enabled — ברירת מחדל פעיל, וניתן לכבות ולהדליק."""
+        assert db.get_bot_settings().get("booking_enabled") == 1
+        assert db.is_booking_enabled() is True
+        s = db.get_bot_settings()
+        db.update_bot_settings(s["tone"], s.get("custom_phrases", ""), booking_enabled=False)
+        assert db.get_bot_settings().get("booking_enabled") == 0
+        assert db.is_booking_enabled() is False
+        db.update_bot_settings(s["tone"], s.get("custom_phrases", ""), booking_enabled=True)
+        assert db.is_booking_enabled() is True
+
 
 class TestAnalytics:
     """טסטים לפונקציות אנליטיקה."""

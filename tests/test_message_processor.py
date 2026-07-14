@@ -241,6 +241,34 @@ class TestBookingIntent:
         assert result.is_html is True
 
 
+class TestBookingDisabled:
+    """booking_enabled=0 → בקשת תור/פגישה מנותבת ל-HUMAN_AGENT (הפניה לנציג)."""
+
+    def test_booking_disabled_routes_to_agent(
+        self, processor_db, mock_intent, mock_vacation_off, user_info,
+    ):
+        import database as _db
+        s = _db.get_bot_settings()
+        _db.update_bot_settings(
+            s["tone"], s.get("custom_phrases", ""), booking_enabled=False,
+        )
+        assert _db.is_booking_enabled() is False
+
+        mock_intent.return_value = Intent.APPOINTMENT_BOOKING
+
+        from core.message_processor import process_incoming_message
+        result = process_incoming_message(
+            user_id="222",
+            text="אפשר לקבוע תור?",
+            user_info=user_info,
+            rate_limit_already_checked=True,
+        )
+        # לא פותחים flow תורים — מנותב לצינור הנציג
+        assert result.action != "start_booking"
+        assert result.intent == Intent.HUMAN_AGENT
+        assert result.action == "request_agent"
+
+
 class TestCancelIntent:
     """appointment_cancel intent → action=cancel_appointment."""
 

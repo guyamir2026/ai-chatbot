@@ -620,6 +620,42 @@ class TestReferralCommand:
 # ── Booking flow ─────────────────────────────────────────────────────────────
 
 
+class TestBookingDisabled:
+    """קביעת תורים כבויה לעסק — הכפתור מוסתר וכניסת ה-flow מחזירה END."""
+
+    def test_keyboard_hides_booking_button_when_disabled(self, db):
+        # telegram ממוקק ב-conftest (ReplyKeyboardMarkup/KeyboardButton = MagicMock),
+        # לכן בודקים אילו כפתורים *נבנו* (call_args של KeyboardButton) ולא את
+        # מבנה המקלדת המוחזר.
+        from bot import handlers
+        # פעיל (ברירת מחדל) — כפתור בקשת התור נבנה
+        with patch.object(handlers, "KeyboardButton") as m_on:
+            handlers._get_main_keyboard()
+        on_labels = [c.args[0] for c in m_on.call_args_list if c.args]
+        assert handlers.BUTTON_BOOKING in on_labels
+        # כבוי — כפתור בקשת התור לא נבנה, אבל שאר הכפתורים כן
+        s = db.get_bot_settings()
+        db.update_bot_settings(s["tone"], s.get("custom_phrases", ""), booking_enabled=False)
+        with patch.object(handlers, "KeyboardButton") as m_off:
+            handlers._get_main_keyboard()
+        off_labels = [c.args[0] for c in m_off.call_args_list if c.args]
+        assert handlers.BUTTON_BOOKING not in off_labels
+        assert handlers.BUTTON_PRICE_LIST in off_labels
+
+    @pytest.mark.asyncio
+    async def test_booking_start_core_returns_end_when_disabled(self, db):
+        from bot.handlers import _booking_start_core
+        from telegram.ext import ConversationHandler
+        s = db.get_bot_settings()
+        db.update_bot_settings(s["tone"], s.get("custom_phrases", ""), booking_enabled=False)
+        update = _make_update(text="📅 בקשת תור")
+        context = _make_context()
+        with patch("bot.handlers._handoff_to_human", new=AsyncMock()) as mock_handoff:
+            result = await _booking_start_core(update, context)
+        assert result == ConversationHandler.END
+        mock_handoff.assert_awaited_once()
+
+
 class TestBookingFlow:
     @pytest.mark.asyncio
     async def test_booking_service_saves_and_advances(self, db):
