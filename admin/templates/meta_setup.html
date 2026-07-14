@@ -1,0 +1,142 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="page-header animate-fade-in">
+    <h1><i class="bi bi-instagram"></i> Meta DM — Instagram & Messenger</h1>
+    <p class="text-muted" style="margin-top: 6px;">
+        חיבור עמוד פייסבוק וחשבון אינסטגרם Business כדי שהבוט יענה אוטומטית על הודעות DM.
+    </p>
+</div>
+
+{# הודעה אם משתני הסביבה לא הוגדרו #}
+{% if not is_configured %}
+<div class="card animate-slide-up">
+    <div class="card-header"><span><i class="bi bi-exclamation-triangle"></i> נדרשת הגדרה ראשונית</span></div>
+    <div class="card-body">
+        <p>
+            לפני שמתחילים יש להגדיר את משתני הסביבה הבאים ב-deployment:
+        </p>
+        <ul>
+            <li><code>META_APP_ID</code></li>
+            <li><code>META_APP_SECRET</code></li>
+            <li><code>META_VERIFY_TOKEN</code> — token חופשי שתבחרו, יוזן גם בלוח הבקרה של מטא</li>
+            <li><code>META_OAUTH_REDIRECT_URI</code> — חייב להתאים בדיוק ל-redirect שמוגדר ב-Meta App Dashboard</li>
+            <li><code>SECRETS_ENCRYPTION_KEY</code> — מפתח Fernet שכבר נמצא בשימוש להצפנת tokens של Google Calendar</li>
+        </ul>
+        <p class="text-small text-muted">
+            פרטים מלאים: <code>docs/meta_dm_spec.md</code>
+        </p>
+    </div>
+</div>
+{% else %}
+
+{# שלב ביניים: המשתמש חזר מ-OAuth, צריך לבחור עמוד #}
+{% if pending_pages %}
+<div class="card animate-slide-up">
+    <div class="card-header"><span><i class="bi bi-list-check"></i> בחירת עמוד לחיבור</span></div>
+    <div class="card-body">
+        <p>חיבור OAuth הצליח. בחר את העמוד שברצונך לחבר:</p>
+        <form method="POST" action="{{ url_for('meta_select_page') }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <div class="form-group">
+                {% for p in pending_pages %}
+                <label class="form-radio">
+                    <input type="radio" name="page_id" value="{{ p.id }}" required>
+                    <strong>{{ p.name }}</strong>
+                    <span class="text-small text-muted">(ID: {{ p.id }})</span>
+                </label>
+                {% endfor %}
+            </div>
+            <div style="margin-top: 16px; display: flex; gap: 8px;">
+                <button type="submit" class="btn btn-primary">
+                    <i class="bi bi-check-lg"></i> חבר את העמוד הנבחר
+                </button>
+                <button type="submit" formaction="{{ url_for('meta_cancel_pending') }}" class="btn btn-secondary">
+                    ביטול
+                </button>
+            </div>
+        </form>
+    </div>
+</div>
+{% endif %}
+
+{# רשימת עמודים מחוברים #}
+<div class="card animate-slide-up stagger-1">
+    <div class="card-header">
+        <span><i class="bi bi-link-45deg"></i> עמודים מחוברים</span>
+    </div>
+    <div class="card-body">
+        {% if connected_pages %}
+        <table class="table">
+            <thead>
+                <tr>
+                    <th>עמוד פייסבוק</th>
+                    <th>Instagram</th>
+                    <th>חובר</th>
+                    <th></th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for p in connected_pages %}
+                <tr>
+                    <td>
+                        <strong>{{ p.page_name or p.page_id }}</strong>
+                        <div class="text-small text-muted">{{ p.page_id }}</div>
+                    </td>
+                    <td>
+                        {% if p.ig_username %}
+                            @{{ p.ig_username }}
+                        {% else %}
+                            <span class="text-small text-muted">— לא מקושר —</span>
+                        {% endif %}
+                    </td>
+                    <td>{{ p.created_at | il_datetime }}</td>
+                    <td>
+                        {# שם העמוד מועבר ב-data-attribute (Jinja autoescape
+                           מטפל ב-HTML), ו-JS קורא אותו דרך dataset כמחרוזת
+                           מוכנה — מונע JS-injection דרך גרשיים בשם העמוד
+                           (למשל "Dana's Bakery"). #}
+                        <form method="POST"
+                              action="{{ url_for('meta_disconnect', page_id=p.page_id) }}"
+                              data-page-label="{{ p.page_name or p.page_id }}"
+                              onsubmit="return confirm('לנתק את ' + this.dataset.pageLabel + '? הודעות לא יענו עוד.');"
+                              style="display:inline;">
+                            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                            <button type="submit" class="btn btn-sm btn-danger">
+                                <i class="bi bi-x-circle"></i> נתק
+                            </button>
+                        </form>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        {% else %}
+        <p class="text-muted">עוד לא חוברו עמודים.</p>
+        {% endif %}
+
+        <div style="margin-top: 16px;">
+            <a href="{{ url_for('meta_connect') }}" class="btn btn-primary">
+                <i class="bi bi-plus-circle"></i> חבר עמוד מטא חדש
+            </a>
+        </div>
+    </div>
+</div>
+
+<div class="card animate-slide-up stagger-2">
+    <div class="card-header"><span><i class="bi bi-info-circle"></i> איך זה עובד</span></div>
+    <div class="card-body">
+        <ol>
+            <li>לחיצה על "חבר עמוד מטא חדש" תעביר אותך ל-Facebook Login.</li>
+            <li>תתבקש לאשר גישה לעמודים שאתה מנהל ולחשבון ה-Instagram Business המקושר.</li>
+            <li>אחרי האישור, תחזור לכאן ותבחר באיזה עמוד לחבר.</li>
+            <li>הבוט יענה אוטומטית על הודעות DM שמגיעות לעמוד הנבחר. הודעות שדורשות התערבות אנושית יועברו אליך כהתראה.</li>
+        </ol>
+        <p class="text-small text-muted" style="margin-top: 12px;">
+            <strong>הערה:</strong> בעוד 60 יום ה-token של מטא ידרוש חידוש (התנתקות וחיבור מחדש). תקבל התראה לפני שזה קורה.
+        </p>
+    </div>
+</div>
+{% endif %}
+
+{% endblock %}
