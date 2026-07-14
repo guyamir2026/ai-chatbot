@@ -4109,6 +4109,7 @@ def get_bot_settings() -> dict:
                 "referral_enabled": 0, "referral_discount": 10.0,
                 "referral_validity_days": 60, "ics_enabled": 1,
                 "booking_enabled": 1,
+                "memory_auto_approve": 0,
                 "auto_booking_mode": "manual",
                 "auto_booking_max_days_ahead": 90,
                 "auto_booking_buffer_after_event_minutes": 0,
@@ -4123,6 +4124,15 @@ def is_booking_enabled() -> bool:
     נקרא בזמן-ריצה בכל נקודות ה-gating (tenant context כבר קבוע).
     """
     return bool(get_bot_settings().get("booking_enabled", 1))
+
+
+def is_memory_auto_approve() -> bool:
+    """האם עובדות זיכרון לא-רגישות מאושרות אוטומטית (פר-עסק, ברירת מחדל: לא).
+
+    מידע רגיש (requires_consent) נשאר בתור לאישור ידני גם כשזה דלוק —
+    שער הפרטיות אינו נעקף.
+    """
+    return bool(get_bot_settings().get("memory_auto_approve", 0))
 
 
 VALID_AUTO_BOOKING_MODES = {"manual", "auto_with_check", "auto_always"}
@@ -4155,6 +4165,7 @@ def update_bot_settings(
     referral_validity_days: int | None = None,
     ics_enabled: bool | None = None,
     booking_enabled: bool | None = None,
+    memory_auto_approve: bool | None = None,
     auto_booking_mode: str | None = None,
     auto_booking_max_days_ahead: int | None = None,
     auto_booking_buffer_after_event_minutes: int | None = None,
@@ -4188,6 +4199,7 @@ def update_bot_settings(
                    referral_validity_days = COALESCE(?, referral_validity_days),
                    ics_enabled = COALESCE(?, ics_enabled),
                    booking_enabled = COALESCE(?, booking_enabled),
+                   memory_auto_approve = COALESCE(?, memory_auto_approve),
                    auto_booking_mode = COALESCE(?, auto_booking_mode),
                    auto_booking_max_days_ahead = COALESCE(?, auto_booking_max_days_ahead),
                    auto_booking_buffer_after_event_minutes = COALESCE(?, auto_booking_buffer_after_event_minutes),
@@ -4204,6 +4216,7 @@ def update_bot_settings(
              referral_validity_days,
              int(ics_enabled) if ics_enabled is not None else None,
              int(booking_enabled) if booking_enabled is not None else None,
+             int(memory_auto_approve) if memory_auto_approve is not None else None,
              auto_booking_mode,
              auto_booking_max_days_ahead,
              int(auto_booking_buffer_after_event_minutes) if auto_booking_buffer_after_event_minutes is not None else None),

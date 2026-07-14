@@ -132,6 +132,11 @@ class TestVcardEscape:
         from bot.handlers import _vcard_escape
         assert _vcard_escape("hello") == "hello"
 
+    def test_escapes_newline(self):
+        """‏\\n בערך — נדרש לשעות רב-שורתיות ב-NOTE (RFC 6350)."""
+        from bot.handlers import _vcard_escape
+        assert _vcard_escape("a\nb") == "a\\nb"
+
 
 class TestGenerateVcardText:
     def test_generates_valid_vcard(self, db):
@@ -140,6 +145,19 @@ class TestGenerateVcardText:
         assert vcard.startswith("BEGIN:VCARD")
         assert vcard.endswith("END:VCARD")
         assert "VERSION:3.0" in vcard
+
+    def test_hours_note_hebrew_multiline(self, db):
+        """שעות ב-NOTE — שמות ימים בעברית, שורה ליום (\\n), כולל 'סגור'."""
+        from bot.handlers import _generate_vcard_text
+        db.upsert_business_hours(0, "09:00", "19:30", False)  # ראשון
+        db.upsert_business_hours(6, "00:00", "00:00", True)   # שבת — סגור
+        vcard = _generate_vcard_text()
+        assert "שעות פעילות:" in vcard
+        assert "ראשון: 09:00-19:30" in vcard
+        assert "שבת: סגור" in vcard
+        # ריבוי-שורות מקודד כ-\n בתוך ערך ה-NOTE (RFC 6350), לא כשורה פיזית
+        note_line = next(l for l in vcard.split("\r\n") if l.startswith("NOTE:"))
+        assert "\\n" in note_line
 
 
 # ── Follow-up questions helpers ──────────────────────────────────────────────

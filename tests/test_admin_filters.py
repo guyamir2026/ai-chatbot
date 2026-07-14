@@ -174,6 +174,48 @@ class TestFormatPhoneFilter:
         assert format_phone(12345) == 12345
 
 
+class TestToIsraeliE164:
+    """נרמול מספר ישראלי לפורמט E.164 (+972...) — לכרטיס הביקור."""
+
+    def test_local_mobile(self):
+        from utils.phone import to_israeli_e164
+        assert to_israeli_e164("0543978620") == "+972543978620"
+
+    def test_local_with_separators(self):
+        from utils.phone import to_israeli_e164
+        assert to_israeli_e164("054-397-8620") == "+972543978620"
+        assert to_israeli_e164("054 397 8620") == "+972543978620"
+
+    def test_e164_unchanged(self):
+        from utils.phone import to_israeli_e164
+        assert to_israeli_e164("+972543978620") == "+972543978620"
+
+    def test_972_without_plus(self):
+        from utils.phone import to_israeli_e164
+        assert to_israeli_e164("972543978620") == "+972543978620"
+
+    def test_local_landline(self):
+        """קווי ישראלי — 8 ספרות אחרי ה-0."""
+        from utils.phone import to_israeli_e164
+        assert to_israeli_e164("03-1234567") == "+97231234567"
+
+    def test_foreign_number_unchanged(self):
+        """מספר שאינו ישראלי — מוחזר כמו שהוא (שדה חופשי)."""
+        from utils.phone import to_israeli_e164
+        assert to_israeli_e164("+14155551234") == "+14155551234"
+
+    def test_empty_and_non_string(self):
+        from utils.phone import to_israeli_e164
+        assert to_israeli_e164("") == ""
+        assert to_israeli_e164("   ") == ""
+        assert to_israeli_e164(None) is None
+
+    def test_invalid_israeli_pattern_unchanged(self):
+        """0 + מעט מדי ספרות — לא תבנית תקפה, לא נוגעים."""
+        from utils.phone import to_israeli_e164
+        assert to_israeli_e164("0123") == "0123"
+
+
 class TestUserIdRouting:
     """רגרסיה: לינקי live-chat ב-WhatsApp נשברו עם '+' ב-URL.
 

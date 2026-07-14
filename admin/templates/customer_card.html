@@ -37,7 +37,7 @@
                         <td style="font-weight: 600;">מזהה</td>
                         <td class="text-small text-muted">
                             {% if card.telegram_username %}
-                            @{{ card.telegram_username | mask_username }}
+                            <span dir="ltr">@{{ card.telegram_username | mask_username }}</span>
                             {% else %}
                             (לא זמין) — ID: {{ card.user_id | mask_name }}
                             {% endif %}

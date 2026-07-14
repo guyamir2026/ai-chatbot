@@ -86,6 +86,91 @@ class TestTenantLifecycle:
         assert cp.list_schedulable_tenant_ids() == ["salon-a"]
 
 
+class TestMigrateAllTenants:
+    """migrate_all_tenants — עדכון סכימה ל-DBים של tenants קיימים בכל
+    עליית תהליך. שורש התיקון לבאג 'no such column' על tenant DB ישן
+    (עמודה שנוספה ב-migration אחרי שה-tenant כבר נוצר)."""
+
+    @staticmethod
+    def _downgrade_bot_settings(tenant_id):
+        """הזדקנות מלאכותית: משחזר bot_settings ללא העמודות שנוספו
+        במיגרציות — מדמה DB שנוצר לפני שהעמודות הוצגו."""
+        with tenant_context(tenant_id):
+            from ai_chatbot import database as db
+
+            with db.get_connection() as conn:
+                conn.execute("DROP TABLE bot_settings")
+                conn.execute(
+                    "CREATE TABLE bot_settings ("
+                    "  id INTEGER PRIMARY KEY CHECK(id = 1),"
+                    "  tone TEXT NOT NULL DEFAULT 'friendly'"
+                    "    CHECK(tone IN ('none','friendly','formal','sales','luxury')),"
+                    "  custom_phrases TEXT DEFAULT '',"
+                    "  updated_at TEXT DEFAULT (datetime('now'))"
+                    ")"
+                )
+                conn.execute("INSERT INTO bot_settings (id) VALUES (1)")
+
+    @staticmethod
+    def _bot_settings_cols(tenant_id):
+        with tenant_context(tenant_id):
+            from ai_chatbot import database as db
+
+            with db.get_connection() as conn:
+                return {
+                    r["name"]
+                    for r in conn.execute("PRAGMA table_info(bot_settings)")
+                }
+
+    def test_restores_missing_columns_on_existing_tenant(self, platform_env):
+        cp.create_tenant("salon-a", "א")
+        cp.create_tenant("salon-b", "ב")
+        # salon-a "ישן" — bot_settings בלי העמודות שנוספו במיגרציות
+        self._downgrade_bot_settings("salon-a")
+        assert "booking_enabled" not in self._bot_settings_cols("salon-a")
+
+        result = cp.migrate_all_tenants()
+
+        assert result["migrated"] == 2
+        assert result["errors"] == 0
+        cols_a = self._bot_settings_cols("salon-a")
+        assert "booking_enabled" in cols_a
+        assert "memory_auto_approve" in cols_a
+        assert "ics_enabled" in cols_a
+
+    def test_skips_suspended_tenant(self, platform_env):
+        cp.create_tenant("salon-a", "א")
+        cp.create_tenant("salon-b", "ב")
+        cp.set_tenant_status("salon-b", "suspended")
+
+        result = cp.migrate_all_tenants()
+        # רק ה-tenant הפעיל מעודכן; המושעה מדולג (גישתו חסומה ממילא)
+        assert result["migrated"] == 1
+        assert result["errors"] == 0
+
+    def test_empty_registry_no_error(self, platform_env):
+        # אין tenants רשומים כלל → סיכום ריק, בלי חריגה
+        assert cp.migrate_all_tenants() == {"migrated": 0, "errors": 0}
+
+    def test_write_after_migration_succeeds(self, platform_env):
+        """הרגרסיה של הבאג עצמו: אחרי migrate_all_tenants, update_bot_settings
+        (שמפנה ל-booking_enabled + memory_auto_approve) לא זורק
+        'no such column' על ה-DB הישן."""
+        cp.create_tenant("salon-a", "א")
+        self._downgrade_bot_settings("salon-a")
+        cp.migrate_all_tenants()
+
+        with tenant_context("salon-a"):
+            from ai_chatbot import database as db
+
+            # לפני התיקון — זה היה זורק sqlite3.OperationalError.
+            db.update_bot_settings(
+                "friendly", booking_enabled=False, memory_auto_approve=True,
+            )
+            assert db.is_booking_enabled() is False
+            assert db.is_memory_auto_approve() is True
+
+
 class TestStatusEnforcement:
     def test_suspended_tenant_blocked_from_db(self, platform_env):
         cp.create_tenant("salon-a", "א")

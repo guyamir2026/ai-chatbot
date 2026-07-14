@@ -3126,7 +3126,10 @@ self.addEventListener('notificationclick', (event) => {
         הערכים נצרכים בזמן-ריצה דרך config.get_business_config().
         """
         if request.method == "POST":
-            phone = request.form.get("business_phone", "").strip()[:50]
+            # נרמול טלפון ישראלי: מקבלים גם 0501234567 → +972501234567,
+            # כדי ש-vCard / wa.me / ICS יקבלו פורמט בינלאומי תקין.
+            from utils.phone import to_israeli_e164
+            phone = to_israeli_e164(request.form.get("business_phone", "").strip())[:50]
             address = request.form.get("business_address", "").strip()[:300]
             website = request.form.get("business_website", "").strip()[:300]
             db.update_business_identity(
@@ -3173,10 +3176,11 @@ self.addEventListener('notificationclick', (event) => {
             biz_name = (request.form.get("business_name_field") or "").strip()
             what_matters = (request.form.get("what_matters_for_extraction") or "").strip()
 
-            # שירותים דינמיים — שלוש רשימות מקבילות מ-getlist
+            # שירותים דינמיים — שתי רשימות מקבילות מ-getlist (שם + כינויים).
+            # אין קטגוריה: ה-extractor מזהה vocabulary לפי name+aliases בלבד
+            # (memory/prompts/fact_extractor.txt), קטגוריה הייתה רעש לא-בשימוש.
             names = [s.strip() for s in request.form.getlist("service_name")]
             aliases_raw = [s.strip() for s in request.form.getlist("service_aliases")]
-            categories = [s.strip() for s in request.form.getlist("service_category")]
 
             services = []
             for i, nm in enumerate(names):
@@ -3184,11 +3188,9 @@ self.addEventListener('notificationclick', (event) => {
                     continue  # שורה ריקה — מדלגים (משתמש לחץ "הוסף" ולא מילא)
                 aliases_csv = aliases_raw[i] if i < len(aliases_raw) else ""
                 aliases = [a.strip() for a in aliases_csv.split(",") if a.strip()]
-                category = categories[i] if i < len(categories) else ""
                 services.append({
                     "name": nm,
                     "aliases": aliases,
-                    "category": category,
                 })
 
             db.upsert_business_profile({
@@ -3252,7 +3254,32 @@ self.addEventListener('notificationclick', (event) => {
             "pending_facts.html",
             facts=facts,
             total_pending=total_pending,
+            auto_approve=db.is_memory_auto_approve(),
         )
+
+    @app.route("/pending-facts/settings", methods=["POST"])
+    @login_required
+    def pending_facts_settings():
+        """עדכון הגדרת אישור אוטומטי של עובדות זיכרון (פר-עסק).
+
+        עובדות לא-רגישות בביטחון בינוני (0.60-0.84) מאושרות אוטומטית
+        כשזה דלוק. מידע רגיש (requires_consent) נשאר בתור לאישור ידני
+        תמיד — שער הפרטיות אינו נעקף.
+        """
+        auto_approve = bool(request.form.get("memory_auto_approve"))
+        current = db.get_bot_settings()
+        db.update_bot_settings(
+            current["tone"], current.get("custom_phrases", ""),
+            memory_auto_approve=auto_approve,
+        )
+        _audit_log("pending_facts_settings", f"memory_auto_approve={auto_approve}")
+        flash(
+            "אישור אוטומטי הופעל — עובדות לא-רגישות יאושרו אוטומטית "
+            "(מידע רגיש עדיין דורש אישור ידני)." if auto_approve
+            else "אישור אוטומטי כובה — כל עובדה חדשה תמתין לאישורך.",
+            "success",
+        )
+        return redirect(url_for("pending_facts"))
 
     @app.route("/api/pending-facts/rows")
     @login_required

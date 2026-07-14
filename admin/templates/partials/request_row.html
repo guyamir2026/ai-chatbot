@@ -17,7 +17,7 @@
             {% if req.telegram_username %}
             <br>
             <a class="text-small" href="{% if is_demo_session %}#{% else %}https://telegram.me/{{ req.telegram_username }}{% endif %}" target="_blank" rel="noopener">
-                @{{ req.telegram_username | mask_username }}
+                <span dir="ltr">@{{ req.telegram_username | mask_username }}</span>
             </a>
             {% elif req.get('channel') == 'widget' %}
             <br><span class="text-small text-muted">מבקר אתר אנונימי</span>

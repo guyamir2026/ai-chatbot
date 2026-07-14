@@ -111,10 +111,19 @@ def _build_business_context(business_profile: dict) -> dict:
                 exc_info=True,
             )
 
+    # נרמול: ה-extractor מזהה vocabulary לפי name+aliases בלבד (ראה
+    # memory/prompts/fact_extractor.txt). שולחים רק אותם — כך שגם פרופילים
+    # ישנים ששמרו "category" לא ישלחו שדה לא-בשימוש כרעש ל-LLM.
+    normalized_services = [
+        {"name": s.get("name", ""), "aliases": s.get("aliases", [])}
+        for s in services
+        if isinstance(s, dict)
+    ]
+
     return {
         "business_type": business_profile.get("business_type") or "",
         "business_name": business_profile.get("business_name") or "",
-        "services": services,
+        "services": normalized_services,
         "what_matters_for_extraction":
             business_profile.get("what_matters_for_extraction") or "",
     }

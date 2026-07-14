@@ -2,11 +2,16 @@
 
 {% block content %}
 <div class="page-header animate-fade-in">
-    <h1><i class="bi bi-person-vcard"></i> כרטיס ביקור</h1>
-    <p class="page-subtitle">
-        פרטי הקשר של העסק — נשלחים ללקוחות ככרטיס איש קשר (vCard), נכנסים
-        לזימוני היומן (ICS) ומוצגים בעמוד הציבורי.
-    </p>
+    {# עטיפה ב-div אחד כדי שתת-הכותרת תרד מתחת לכותרת: .page-header הוא
+       flex עם justify-content:space-between, ולכן ילדים ישירים יושבים
+       זה-לצד-זה. div יחיד = פריט flex אחד עם h1+p ערוכים אנכית. #}
+    <div>
+        <h1><i class="bi bi-person-vcard"></i> כרטיס ביקור</h1>
+        <p class="page-subtitle">
+            פרטי הקשר של העסק — נשלחים ללקוחות ככרטיס איש קשר (vCard), נכנסים
+            לזימוני היומן (ICS) ומוצגים בעמוד הציבורי.
+        </p>
+    </div>
 </div>
 
 <div class="card animate-slide-up" style="max-width: 640px;">
@@ -26,9 +31,12 @@
 
             <div class="form-group" style="margin-bottom: var(--space-md);">
                 <label class="form-label" for="business_phone" style="font-weight: 600;">טלפון</label>
+                <div class="text-small text-muted" style="margin-bottom: var(--space-xs);">
+                    אפשר להזין בפורמט מקומי (<span dir="ltr">0501234567</span>) — יומר אוטומטית לפורמט בינלאומי.
+                </div>
                 <input type="text" class="form-control" id="business_phone" name="business_phone"
                        maxlength="50" dir="ltr" value="{{ settings.business_phone or '' }}"
-                       placeholder="+972-50-0000000">
+                       placeholder="0501234567">
             </div>
 
             <div class="form-group" style="margin-bottom: var(--space-md);">

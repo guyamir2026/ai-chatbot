@@ -164,6 +164,12 @@ def run_migrations(conn) -> None:
     # אונליין; בקשות תור/פגישה מופנות לנציג, והכפתור/ה-flow מוסתרים.
     _ensure_column(conn, "bot_settings", "booking_enabled", "INTEGER DEFAULT 1")
 
+    # ─── bot_settings: אישור אוטומטי של עובדות זיכרון (פר-עסק) ────────────
+    # ברירת מחדל 0 = אישור ידני (התנהגות נוכחית). 1 = עובדות לא-רגישות
+    # מאושרות אוטומטית; מידע רגיש (requires_consent) נשאר בתור לאישור ידני
+    # (שער פרטיות שאינו נעקף).
+    _ensure_column(conn, "bot_settings", "memory_auto_approve", "INTEGER DEFAULT 0")
+
     # ─── bot_settings: פרומפט מערכת מלא (override) ─────────────────────────
     _ensure_column(conn, "bot_settings", "full_system_prompt", "TEXT DEFAULT ''")
 

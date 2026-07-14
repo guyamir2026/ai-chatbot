@@ -35,6 +35,38 @@ def format_phone(value: str) -> str:
     return value
 
 
+def to_israeli_e164(value: str) -> str:
+    """נרמול מספר ישראלי לפורמט E.164 (+972...).
+
+    מקבל פורמט מקומי (0501234567), 972501234567, או +972501234567 —
+    עם או בלי רווחים / מקפים / סוגריים / נקודות. מחזיר +972XXXXXXXXX.
+    הפוך ל-format_phone (שממיר +972 → 0X).
+
+    אם הערך אינו נראה כמספר ישראלי (מספר זר, ריק, טקסט) — מוחזר כמו
+    שהוא, בלי לדחות, כי שדה הטלפון בכרטיס הביקור חופשי (למשל מספר בחו"ל).
+    """
+    if not isinstance(value, str):
+        return value
+    raw = value.strip()
+    if not raw:
+        return raw
+    # ניקוי מפרידי-תצוגה נפוצים לפני בדיקת הקידומת
+    digits = re.sub(r"[\s\-().]", "", raw)
+    if digits.startswith("+972"):
+        rest = digits[4:]
+    elif digits.startswith("972"):
+        rest = digits[3:]
+    elif digits.startswith("0"):
+        rest = digits[1:]
+    else:
+        return value  # לא נראה ישראלי — משאירים כמו שהוא
+    # החלק אחרי הקידומת חייב להיות 8–9 ספרות שמתחילות בלא-אפס
+    # (מובייל ישראלי 9, קווי 8). אחרת — לא תבנית ישראלית תקפה, לא נוגעים.
+    if re.fullmatch(r"[1-9]\d{7,8}", rest):
+        return "+972" + rest
+    return value
+
+
 def is_valid_israeli_e164(value: str) -> bool:
     """בדיקה אם ערך הוא מספר טלפון ישראלי תקף בפורמט E.164 (+972 + 9 ספרות).
 
