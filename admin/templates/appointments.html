@@ -1,0 +1,642 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="page-header animate-fade-in">
+    <h1><i class="bi bi-calendar-check"></i> תורים</h1>
+</div>
+
+{# ── לוח שנה חודשי (מתרענן אוטומטית כל 15 שניות) ── #}
+<div class="card animate-slide-up" style="margin-bottom: 1.5rem;">
+    <div class="card-body" style="padding: 1rem;"
+         id="appointments-calendar"
+         hx-get="/api/appointments/calendar?year={{ cal_year }}&month={{ cal_month }}"
+         hx-trigger="every 15s"
+         hx-swap="innerHTML">
+        {% include "partials/appointments_calendar.html" %}
+    </div>
+</div>
+
+{# ── מודל פירוט תורים ליום נבחר ── #}
+<div id="day-modal-overlay" class="appt-modal-overlay" style="display:none;" onclick="if(event.target===this)closeDayModal()">
+    <div class="appt-modal">
+        <div class="appt-modal-header">
+            <h3 id="day-modal-title"></h3>
+            <button class="appt-modal-close" onclick="closeDayModal()">&times;</button>
+        </div>
+        <div class="appt-modal-body">
+            <div class="table-wrapper">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>לקוח</th>
+                            <th>שירות</th>
+                            <th>שעה</th>
+                            <th>סטטוס</th>
+                            <th>משך תור</th>
+                        </tr>
+                    </thead>
+                    <tbody id="day-modal-body"></tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+</div>
+
+{# ── טבלה מלאה (ממוינת לפי תאריך) ── #}
+<div class="card animate-slide-up">
+    <div class="card-body" style="padding: 0;">
+        <details>
+            <summary style="padding: 1rem; cursor: pointer; color: var(--text-secondary);">
+                <i class="bi bi-table"></i> רשימה מלאה (<span id="appt-count">{{ appointments|length }}</span> תורים)
+            </summary>
+            <div class="table-wrapper">
+                <table id="appointments-table" {% if not appointments %}style="display:none;"{% endif %}>
+                    <thead>
+                        <tr>
+                            <th class="sortable" data-col="0">מזהה <i class="bi bi-chevron-expand sort-icon"></i></th>
+                            <th class="sortable" data-col="1">לקוח <i class="bi bi-chevron-expand sort-icon"></i></th>
+                            <th class="sortable" data-col="2">שירות <i class="bi bi-chevron-expand sort-icon"></i></th>
+                            <th class="sortable" data-col="3">תאריך <i class="bi bi-chevron-expand sort-icon"></i></th>
+                            <th class="sortable" data-col="4">שעה <i class="bi bi-chevron-expand sort-icon"></i></th>
+                            <th class="sortable" data-col="5">משך תור <i class="bi bi-chevron-expand sort-icon"></i></th>
+                            <th class="sortable" data-col="6">סטטוס <i class="bi bi-chevron-expand sort-icon"></i></th>
+                            <th class="sortable" data-col="7">נוצר <i class="bi bi-chevron-expand sort-icon"></i></th>
+                            <th>פעולות</th>
+                        </tr>
+                    </thead>
+                    <tbody id="appointments-table-body"
+                           hx-get="/api/appointments/rows"
+                           hx-trigger="every 15s"
+                           hx-swap="innerHTML">
+                        {% for appt in appointments %}
+                        {% include "partials/appointment_row.html" %}
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            <div id="appt-empty-state" class="empty-state" {% if appointments %}style="display:none;"{% endif %}>
+                <i class="bi bi-calendar-plus"></i>
+                <p>אין עדיין תורים.</p>
+            </div>
+        </details>
+    </div>
+</div>
+
+{# ── תזכורות תורים ── #}
+<div class="card animate-slide-up" style="margin-top: 1.5rem;">
+    <div class="card-header">
+        <span><i class="bi bi-bell"></i> תזכורות תורים</span>
+        {% if settings.reminder_enabled %}
+        <span class="badge badge-success">פעיל</span>
+        {% else %}
+        <span class="badge badge-muted">כבוי</span>
+        {% endif %}
+    </div>
+    <div class="card-body">
+        <form method="POST" action="{{ url_for('appointments') }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <input type="hidden" name="form_type" value="reminder">
+
+            <div class="text-small text-muted" style="margin-bottom: var(--space-md);">
+                שליחת הודעת תזכורת אוטומטית ללקוח יום לפני התור (רק תורים מאושרים).
+            </div>
+
+            <div class="form-group" style="margin-bottom: var(--space-md);">
+                <label style="display: flex; align-items: center; gap: var(--space-sm); cursor: pointer;">
+                    <input type="checkbox" name="reminder_enabled" value="1"
+                           {% if settings.reminder_enabled %}checked{% endif %}
+                           style="width: 18px; height: 18px;">
+                    <span style="font-weight: 600;">הפעלת תזכורות</span>
+                </label>
+            </div>
+
+            <div class="form-group" style="margin-bottom: var(--space-md);">
+                <label class="form-label" for="reminder_time" style="font-weight: 600;">שעת שליחה</label>
+                <div class="text-small text-muted" style="margin-bottom: var(--space-xs);">
+                    באיזו שעה לשלוח את התזכורת (שעון ישראל).
+                </div>
+                <input type="text" class="form-control" id="reminder_time"
+                       name="reminder_time" value="{{ settings.reminder_time or '10:00' }}"
+                       inputmode="numeric" pattern="\d{2}:\d{2}" placeholder="HH:MM" maxlength="5"
+                       style="max-width: 120px;">
+            </div>
+
+            <hr style="margin: var(--space-md) 0; border-color: var(--border-color);">
+
+            <div class="form-group" style="margin-bottom: var(--space-md);">
+                <label style="display: flex; align-items: center; gap: var(--space-sm); cursor: pointer;">
+                    <input type="checkbox" name="second_reminder_enabled" value="1"
+                           {% if settings.second_reminder_enabled %}checked{% endif %}
+                           style="width: 18px; height: 18px;">
+                    <span style="font-weight: 600;">תזכורת שנייה לפני התור</span>
+                </label>
+                <div class="text-small text-muted" style="margin-top: var(--space-xs);">
+                    שליחת תזכורת נוספת לפני מועד התור (נוסף על התזכורת יום לפני).
+                </div>
+            </div>
+
+            <div class="form-group" style="margin-bottom: var(--space-md);">
+                <label class="form-label" for="second_reminder_hours" style="font-weight: 600;">כמה שעות לפני התור</label>
+                <div class="text-small text-muted" style="margin-bottom: var(--space-xs);">
+                    כמה שעות לפני מועד התור לשלוח את התזכורת השנייה.
+                </div>
+                <input type="number" class="form-control" id="second_reminder_hours"
+                       name="second_reminder_hours"
+                       value="{{ settings.second_reminder_hours|default(2, true) }}"
+                       min="0.5" max="24" step="0.5"
+                       style="max-width: 120px;">
+            </div>
+
+            <button type="submit" class="btn btn-primary">
+                <i class="bi bi-check-lg"></i> שמירת הגדרות תזכורת
+            </button>
+        </form>
+    </div>
+</div>
+{# ── הגדרת משך התורים ── #}
+<div class="card animate-slide-up" style="margin-top: 1.5rem;">
+    <div class="card-header">
+        <span><i class="bi bi-clock-history"></i> הגדרת משך התורים</span>
+    </div>
+    <div class="card-body">
+        <form method="POST" action="{{ url_for('appointments') }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <input type="hidden" name="form_type" value="duration_options">
+
+            <div class="text-small text-muted" style="margin-bottom: var(--space-md);">
+                <b>במצב אישור ידני</b> (וגם במקרי קצה של "אוטומטי עם בדיקה") — כשמאשרים תור יוצגו כפתורי משך תור לבחירה,
+                כך אפשר לבחור באופן ידני את המשך לפי הצורך.<br>
+                <b>במצב אוטומטי</b> — ערך "ברירת המחדל" שלמטה הוא המשך שיוכנס ליומן Google בכל תור שמאושר אוטומטית.
+                שאר השדות (מרווחי זמן, אופציות קצרות/ארוכות) רלוונטיים רק לכפתורי האישור הידני.
+            </div>
+
+            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: var(--space-sm); align-items: end;">
+                <div class="form-group" style="margin: 0;">
+                    <label class="form-label" style="font-weight: 600;">ברירת מחדל למשך כל התורים (דקות)</label>
+                    <input type="number" name="default_appointment_duration_minutes"
+                           value="{{ duration_settings.default_minutes }}"
+                           min="5" max="1440" step="5" required class="form-control">
+                </div>
+                <div class="form-group" style="margin: 0;">
+                    <label class="form-label" style="font-weight: 600;">מרווחי זמן לבחירה (דקות)</label>
+                    <input type="number" name="appointment_duration_step_minutes"
+                           value="{{ duration_settings.step_minutes }}"
+                           min="5" max="120" step="5" required class="form-control">
+                </div>
+                <div class="form-group" style="margin: 0;">
+                    <label class="form-label" style="font-weight: 600;">מס' אופציות קצרות יותר</label>
+                    <input type="number" name="appointment_duration_steps_backward"
+                           value="{{ duration_settings.steps_backward }}"
+                           min="0" max="10" required class="form-control">
+                </div>
+                <div class="form-group" style="margin: 0;">
+                    <label class="form-label" style="font-weight: 600;">מס' אופציות ארוכות יותר</label>
+                    <input type="number" name="appointment_duration_steps_forward"
+                           value="{{ duration_settings.steps_forward }}"
+                           min="0" max="10" required class="form-control">
+                </div>
+            </div>
+
+            <div class="text-small text-muted" style="margin-top: var(--space-sm);">
+                <i class="bi bi-info-circle"></i>
+                דוגמה: ברירת מחדל 60 דק׳. מרווחי זמן לבחירה: 15 דק׳, אופציות קצרות יותר: 2. אופציות ארוכות יותר: 4. ← יוצגו שש אפשרויות לבחירה (בדק׳): 30 / 45 / <b>60</b> / 75 / 90 / 105 / 120.
+            </div>
+
+            <button type="submit" class="btn btn-primary" style="margin-top: var(--space-md);">
+                <i class="bi bi-check-circle"></i> שמירת הגדרות
+            </button>
+        </form>
+    </div>
+</div>
+
+{# ── אישור תורים אוטומטי ── #}
+<div class="card animate-slide-up" style="margin-top: 1.5rem;">
+    <div class="card-header">
+        <span><i class="bi bi-magic"></i> אישור תורים אוטומטי</span>
+        {% set _abm = settings.auto_booking_mode or 'manual' %}
+        {% if _abm == 'manual' %}
+        <span class="badge badge-muted">ידני</span>
+        {% elif _abm == 'auto_with_check' %}
+        <span class="badge badge-success">אוטומטי עם בדיקה</span>
+        {% else %}
+        <span class="badge badge-warning">אוטומטי תמיד</span>
+        {% endif %}
+    </div>
+    <div class="card-body">
+        <form method="POST" action="{{ url_for('appointments') }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <input type="hidden" name="form_type" value="auto_booking">
+
+            <div class="text-small text-muted" style="margin-bottom: var(--space-md);">
+                איך הבוט מתייחס לתורים שהלקוח קובע. במצבים האוטומטיים, משך התור שיוכנס ליומן Google
+                נלקח מ<b>"ברירת המחדל למשך כל התורים"</b> בכרטיס "הגדרת משך התורים".
+            </div>
+
+            <div class="form-group" style="margin-bottom: var(--space-sm);">
+                <label style="display: flex; align-items: flex-start; gap: var(--space-sm); cursor: pointer; padding: var(--space-sm); border-radius: var(--radius-md);">
+                    <input type="radio" name="auto_booking_mode" value="manual"
+                           {% if _abm == 'manual' %}checked{% endif %}
+                           style="margin-top: 4px;">
+                    <span>
+                        <span style="font-weight: 600;">ידני (ברירת מחדל)</span>
+                        <div class="text-small text-muted">כל תור נשמר כ-"ממתין לאישור". אתם מאשרים ידנית בפאנל. רק אז התור נכנס ליומן Google.</div>
+                    </span>
+                </label>
+            </div>
+
+            <div class="form-group" style="margin-bottom: var(--space-sm);">
+                <label style="display: flex; align-items: flex-start; gap: var(--space-sm); cursor: pointer; padding: var(--space-sm); border-radius: var(--radius-md);">
+                    <input type="radio" name="auto_booking_mode" value="auto_with_check"
+                           {% if _abm == 'auto_with_check' %}checked{% endif %}
+                           style="margin-top: 4px;">
+                    <span>
+                        <span style="font-weight: 600;">אוטומטי עם בדיקה <span class="badge badge-success" style="font-weight:normal;">מומלץ</span></span>
+                        <div class="text-small text-muted">
+                            תור מאושר מיידית אם:
+                            <b>(1)</b> זה בתוך שעות העבודה,
+                            <b>(2)</b> לא בחג / יום סגור / חופשה,
+                            <b>(3)</b> השעה פנויה ביומן Google.<br>
+                            אחרת — נשאר "ממתין לאישור" כמו במצב ידני.
+                            <span style="color: var(--warning-color);">דורש חיבור Google Calendar פעיל ועדכני.</span>
+                        </div>
+                    </span>
+                </label>
+            </div>
+
+            <div class="form-group" style="margin-bottom: var(--space-md);">
+                <label style="display: flex; align-items: flex-start; gap: var(--space-sm); cursor: pointer; padding: var(--space-sm); border-radius: var(--radius-md);">
+                    <input type="radio" name="auto_booking_mode" value="auto_always"
+                           {% if _abm == 'auto_always' %}checked{% endif %}
+                           style="margin-top: 4px;">
+                    <span>
+                        <span style="font-weight: 600;">אוטומטי תמיד</span>
+                        <div class="text-small text-muted">
+                            כל תור מאושר מיידית בלי בדיקה. <span style="color: var(--danger-color);">סיכון לכפילויות ביומן.</span>
+                            מתאים רק אם אתם לא משתמשים ב-Google Calendar או שאתם בטוחים שאין התנגשויות.
+                        </div>
+                    </span>
+                </label>
+            </div>
+
+            <div class="form-group" style="margin-bottom: var(--space-md);">
+                <label class="form-label" for="auto_booking_max_days_ahead" style="font-weight: 600;">
+                    טווח מקסימלי לקביעה (ימים קדימה)
+                </label>
+                <input type="number" class="form-control" id="auto_booking_max_days_ahead"
+                       name="auto_booking_max_days_ahead"
+                       value="{{ settings.auto_booking_max_days_ahead|default(90, true) }}"
+                       min="1" max="365" step="1"
+                       style="max-width: 120px;">
+                <div class="text-small text-muted" style="margin-top: 4px;">
+                    בקשות לתורים מעבר לטווח הזה נדחות אוטומטית. ברירת מחדל: 90 יום.
+                </div>
+            </div>
+
+            <div class="form-group" style="margin-bottom: var(--space-md); border-top: 1px solid var(--border-color); padding-top: var(--space-md);">
+                <label class="form-label" for="auto_booking_buffer_after_event_minutes" style="font-weight: 600;">
+                    מרווח אחרי אירוע ביומן (דקות)
+                </label>
+                <input type="number" class="form-control" id="auto_booking_buffer_after_event_minutes"
+                       name="auto_booking_buffer_after_event_minutes"
+                       value="{{ settings.auto_booking_buffer_after_event_minutes|default(0, true) }}"
+                       min="0" max="240" step="5"
+                       style="max-width: 120px;">
+                <div class="text-small text-muted" style="margin-top: 4px;">
+                    כמה דקות "להחזיק חופשי" אחרי כל תור / אירוע קיים ביומן Google.<br>
+                    <b>למה זה קיים?</b> אנחנו לא יודעים כמה תור קודם <i>באמת</i> נמשך — הוא יכול לגלוש מעבר לזמן המתוכנן.
+                    אם תקבעו 15 דק', סלוט שמתחיל פחות מ-15 דק' אחרי תור קיים יוצג כתפוס ולא יאושר אוטומטית.<br>
+                    משפיע גם על השעות שמוצגות ללקוח בלוח השנה. ברירת מחדל: 0 (בלי buffer).
+                </div>
+            </div>
+
+            <button type="submit" class="btn btn-primary">
+                <i class="bi bi-check-lg"></i> שמירה
+            </button>
+        </form>
+    </div>
+</div>
+
+{# ── קובץ יומן .ics ── #}
+<div class="card animate-slide-up" style="margin-top: 1.5rem;">
+    <div class="card-header">
+        <span><i class="bi bi-calendar-event"></i> קובץ יומן (.ics)</span>
+        {% if settings.ics_enabled %}
+        <span class="badge badge-success">פעיל</span>
+        {% else %}
+        <span class="badge badge-muted">כבוי</span>
+        {% endif %}
+    </div>
+    <div class="card-body">
+        <form method="POST" action="{{ url_for('appointments') }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <input type="hidden" name="form_type" value="ics_settings">
+
+            <div class="text-small text-muted" style="margin-bottom: var(--space-md);">
+                שליחת קובץ יומן (.ics) ללקוח אחרי אישור תור — מוסיף את התור אוטומטית ליומן הטלפון עם תזכורת שעה לפני.
+            </div>
+
+            <div class="form-group" style="margin-bottom: var(--space-md);">
+                <label style="display: flex; align-items: center; gap: var(--space-sm); cursor: pointer;">
+                    <input type="checkbox" name="ics_enabled" value="1"
+                           {% if settings.ics_enabled %}checked{% endif %}
+                           style="width: 18px; height: 18px;">
+                    <span style="font-weight: 600;">הפעלת שליחת קובץ יומן</span>
+                </label>
+            </div>
+
+            <button type="submit" class="btn btn-primary">
+                <i class="bi bi-check-lg"></i> שמירה
+            </button>
+        </form>
+    </div>
+</div>
+
+{# ── תצוגה מקדימה של .ics לתורים מאושרים ── #}
+<div id="ics-preview-modal" class="card animate-slide-up" style="display:none; margin-top: 1.5rem; border: 2px solid var(--primary-color);">
+    <div class="card-header">
+        <span><i class="bi bi-eye"></i> תצוגה מקדימה — קובץ יומן</span>
+        <button type="button" onclick="document.getElementById('ics-preview-modal').style.display='none'" style="background:none; border:none; cursor:pointer; font-size: 1.2rem;">&times;</button>
+    </div>
+    <div class="card-body" id="ics-preview-body">
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+/* ── תצוגה מקדימה של קובץ .ics ── */
+function showIcsPreview(apptId) {
+    var modal = document.getElementById('ics-preview-modal');
+    var body = document.getElementById('ics-preview-body');
+    body.innerHTML = '<p class="text-muted">טוען...</p>';
+    modal.style.display = '';
+
+    fetch('/api/appointments/' + apptId + '/ics-preview')
+        .then(function(r) { return r.json(); })
+        .then(function(data) {
+            if (data.error) {
+                body.innerHTML = '<p class="text-danger">' + esc(data.error) + '</p>';
+                return;
+            }
+            body.innerHTML =
+                '<table style="width:100%;">' +
+                '<tr><td style="font-weight:600; padding: 4px 8px; width: 120px;">כותרת:</td><td>' + esc(data.summary || '') + '</td></tr>' +
+                '<tr><td style="font-weight:600; padding: 4px 8px;">התחלה:</td><td>' + esc(data.dtstart || '') + '</td></tr>' +
+                '<tr><td style="font-weight:600; padding: 4px 8px;">סיום:</td><td>' + esc(data.dtend || '') + '</td></tr>' +
+                '<tr><td style="font-weight:600; padding: 4px 8px;">מיקום:</td><td>' + esc(data.location || '') + '</td></tr>' +
+                '<tr><td style="font-weight:600; padding: 4px 8px;">תזכורת:</td><td>' + esc(data.reminder || '') + '</td></tr>' +
+                '</table>';
+        })
+        .catch(function() {
+            body.innerHTML = '<p class="text-danger">שגיאה בטעינת תצוגה מקדימה</p>';
+        });
+
+    modal.scrollIntoView({behavior: 'smooth', block: 'nearest'});
+}
+
+/* ── פירוט יום בלחיצה ── */
+var allAppts = {{ appointments|tojson }};
+var _userNotes = {{ user_notes|tojson }};
+/* ברירת מחדל גלובלית למשך תור — משמשת fallback לתורים מאושרים שלא נשמר עבורם
+   confirmed_duration_minutes (נתונים ישנים מלפני הוספת הבחירה הידנית). */
+var _defaultDurationMinutes = {{ duration_settings.default_minutes|tojson }};
+
+function _rebuildApptIndex() {
+    window._apptByDate = {};
+    allAppts.forEach(function(a) {
+        if (!a.preferred_date) return;
+        if (!window._apptByDate[a.preferred_date]) window._apptByDate[a.preferred_date] = [];
+        window._apptByDate[a.preferred_date].push(a);
+    });
+}
+_rebuildApptIndex();
+
+var statusMap = {pending: 'ממתין', confirmed: 'מאושר', cancelled: 'בוטל', passed: 'עבר'};
+var badgeClass = {pending: 'badge-warning', confirmed: 'badge-success', cancelled: 'badge-danger', passed: 'badge-muted'};
+var todayIso = {{ today_iso|tojson }};
+
+/* סטטוס תצוגה — תורים שהתאריך שלהם עבר מוצגים כ-"עבר" (חוץ ממבוטלים) */
+function displayStatus(appt, day) {
+    if (day < todayIso && appt.status !== 'cancelled') return 'passed';
+    return appt.status;
+}
+
+/* הגנה מפני XSS — escape של תווי HTML בשדות שמגיעים מהמשתמש */
+function esc(s) {
+    var d = document.createElement('div');
+    d.textContent = s || '';
+    return d.innerHTML;
+}
+/* escape מלא כולל גרשיים — לשימוש בתוך attributes של HTML */
+function escAttr(s) {
+    return esc(s).replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
+function closeDayModal() {
+    var overlay = document.getElementById('day-modal-overlay');
+    if (overlay.style.display === 'none') return;
+    overlay.style.display = 'none';
+    document.body.style.overflow = '';
+}
+
+/* סגירת המודל במקש Escape — רק אם אין popover פתוח.
+   ה-listener של base.html רץ קודם ומסיר את ה-popover מה-DOM,
+   לכן בודקים בשלב capture (לפני שהוא מוסר) ומסמנים flag. */
+var _popoverOpenOnEscape = false;
+document.addEventListener('keydown', function(e) {
+    if (e.key === 'Escape') _popoverOpenOnEscape = !!document.querySelector('.note-popover');
+}, true);
+document.addEventListener('keydown', function(e) {
+    if (e.key === 'Escape' && !_popoverOpenOnEscape) closeDayModal();
+});
+
+function toggleDayDetail(el) {
+    var day = el.dataset.day;
+    var overlay = document.getElementById('day-modal-overlay');
+    overlay.dataset.day = day;
+    _renderDayModal(day);
+    overlay.style.display = '';
+    document.body.style.overflow = 'hidden';
+}
+
+/* רינדור גוף המודל ליום נתון. מופרד מ-toggleDayDetail כדי שאפשר יהיה
+   לרענן את המודל אחרי פעולה (אישור/ביטול) בלי לסגור ולפתוח מחדש. */
+function _renderDayModal(day) {
+    var title = document.getElementById('day-modal-title');
+    var body = document.getElementById('day-modal-body');
+    var list = (window._apptByDate || {})[day] || [];
+    var dayDisplay = day.split('-').reverse().join('-');
+    title.textContent = '📅 ' + dayDisplay + ' (' + list.length + ' תורים)';
+    body.innerHTML = '';
+
+    list.forEach(function(a) {
+        var tr = document.createElement('tr');
+        tr.id = 'cal-appt-row-' + a.id;
+        var dStatus = displayStatus(a, day);
+        var badge = '<span class="badge ' + (badgeClass[dStatus]||'') + '">' + (statusMap[dStatus]||dStatus) + '</span>';
+
+        // עמודת "משך תור": לתורים ממתינים — כפתורי בחירת משך (כל כפתור מאשר עם משך
+        // שונה). לתורים מאושרים — המשך שבעל העסק קבע באישור (או ברירת מחדל גלובלית
+        // עבור נתונים ישנים). למבוטל/עבר — מקף.
+        // hx-swap="none" + hx-on::after-request: לא דורסים את השורה (שיגרום לשורה
+        // להיעלם עד הריענון הבא). במקום זאת מרעננים את כל המודל מ-/api/appointments/data
+        // ומציגים את התור במצב המעודכן (מאושר/מבוטל) מיידית.
+        var actions = '';
+        if (a.status === 'pending' && dStatus !== 'passed') {
+            var defaultDur = a.default_duration_minutes || 60;
+            var options = (a.duration_options && a.duration_options.length) ? a.duration_options : [defaultDur];
+            var durButtons = options.map(function (dur) {
+                var cls = (dur === defaultDur) ? 'btn-success' : 'btn-outline-success';
+                var hxVals = '{"status":"confirmed","duration_minutes":"' + dur + '"}';
+                return '<button class="btn btn-sm ' + cls + '" hx-post="/appointments/' + a.id + '/update" '
+                    + 'hx-vals=\'' + hxVals + '\' hx-include="#cal-msg-' + a.id + '" '
+                    + 'hx-swap="none" hx-on::after-request="_onModalActionDone(event)" '
+                    + 'title="אשר עם משך ' + dur + ' דקות">'
+                    + '<i class="bi bi-check-lg"></i> ' + dur + '׳</button>';
+            }).join('');
+            actions =
+                '<input type="text" name="owner_message" id="cal-msg-' + a.id + '" class="form-control form-control-sm mb-1" placeholder="הודעה אישית (אופציונלי)" style="min-width:140px;">' +
+                '<div class="d-flex gap-1 flex-wrap" style="margin-bottom:4px;">' + durButtons + '</div>' +
+                '<div class="d-flex gap-1">' +
+                '<button class="btn btn-outline-danger btn-sm" hx-post="/appointments/' + a.id + '/update" hx-vals=\'{"status":"cancelled"}\' hx-include="#cal-msg-' + a.id + '" hx-swap="none" hx-on::after-request="_onModalActionDone(event)"><i class="bi bi-x-lg"></i> בטל</button>' +
+                '</div>';
+        } else if (a.status === 'confirmed') {
+            // עדיפות ל-effective_duration_minutes שמחושב בשרת (כולל fallback מעודכן
+            // לברירת מחדל גלובלית). _defaultDurationMinutes נטען פעם אחת ב-load
+            // ויכול להישאר stale אם בעל העסק שינה את הברירה — לכן רק fallback אחרון.
+            var dur = a.effective_duration_minutes || a.confirmed_duration_minutes || _defaultDurationMinutes;
+            actions = '<span class="text-nowrap">' + esc(String(dur)) + ' דק׳</span>';
+        } else {
+            actions = '<span class="text-muted">—</span>';
+        }
+
+        var noteText = _userNotes[a.user_id] || '';
+        var noteIcon = '<span class="user-note-trigger' + (noteText ? ' has-note' : '') + '" data-user-id="' + escAttr(a.user_id) + '" data-note="' + escAttr(noteText) + '" title="' + escAttr(noteText || 'הוסף פתק') + '"><i class="bi ' + (noteText ? 'bi-sticky-fill' : 'bi-sticky') + '"></i></span>';
+
+        tr.innerHTML =
+            '<td>' + esc(formatPhone(a.username)) + noteIcon + '</td>' +
+            '<td>' + esc(a.service) + '</td>' +
+            '<td>' + esc(a.preferred_time) + '</td>' +
+            '<td>' + badge + '</td>' +
+            '<td>' + actions + '</td>';
+        body.appendChild(tr);
+    });
+
+    /* הפעלת HTMX על אלמנטים חדשים */
+    if (window.htmx) htmx.process(body);
+}
+
+/* רענון מיידי של המודל אחרי אישור/ביטול תור — מונע הצגת מודל ריק עד הריענון
+   הבא של הפולינג. שואב נתונים טריים (כולל effective_duration_minutes) ובונה
+   מחדש את גוף המודל ליום הפתוח. */
+function _onModalActionDone(event) {
+    if (!event || !event.detail || !event.detail.successful) return;
+    var overlay = document.getElementById('day-modal-overlay');
+    if (!overlay || !overlay.dataset.day) return;
+    _refreshApptData().then(function() {
+        // קוראים את היום מחדש בתוך ה-then כדי לא להישאר עם closure ישן: אם
+        // המשתמש סגר ופתח יום אחר תוך כדי ה-fetch, dataset.day כבר התעדכן
+        // ויש לרנדר את היום החדש (או לא לרנדר אם המודל נסגר).
+        var currentDay = overlay.dataset.day;
+        if (currentDay && overlay.style.display !== 'none') _renderDayModal(currentDay);
+    });
+}
+
+/* ── עדכון allAppts כשהלוח מתרענן ── */
+/* ריענון נתוני תורים מהשרת. מחזיר Promise כדי שמתקשרים יוכלו לחבר המשך
+   (כמו רינדור מודל) ולא לשכפל את ה-fetch/parse/index. */
+function _refreshApptData() {
+    return fetch('/api/appointments/data')
+        .then(function(r) { return r.json(); })
+        .then(function(data) { allAppts = data; _rebuildApptIndex(); })
+        .catch(function() {});
+}
+
+/* דילוג על ריענון אם המשתמש מקליד בשדה קלט */
+document.body.addEventListener('htmx:beforeSwap', function(e) {
+    var target = e.detail.target;
+    if (target && target.id === 'appointments-table-body') {
+        var focused = document.activeElement;
+        if (focused && focused.tagName === 'INPUT' && target.contains(focused)) {
+            e.detail.shouldSwap = false;
+        }
+    }
+});
+/* כשה-swap של הלוח נחסם (תוכן זהה) — עדיין לרענן נתוני תורים לפירוט יום */
+document.getElementById('appointments-calendar').addEventListener('htmx:swapSkipped', _refreshApptData);
+
+document.body.addEventListener('htmx:afterSwap', function(e) {
+    if (e.detail.target && e.detail.target.id === 'appointments-calendar') {
+        _refreshApptData();
+    }
+    /* עדכון מונה ו-empty state בטבלה */
+    if (e.detail.target && e.detail.target.id === 'appointments-table-body') {
+        var table = document.getElementById('appointments-table');
+        var empty = document.getElementById('appt-empty-state');
+        var counter = document.getElementById('appt-count');
+        var hasRows = e.detail.target.querySelector('tr') !== null;
+        if (table) table.style.display = hasRows ? '' : 'none';
+        if (empty) empty.style.display = hasRows ? 'none' : '';
+        if (counter) counter.textContent = e.detail.target.querySelectorAll('tr').length;
+    }
+});
+
+/* ── מיון טבלה (רשימה מלאה) ── */
+(function() {
+    var table = document.getElementById('appointments-table');
+    if (!table) return;
+    var tbody = table.querySelector('tbody');
+    var headers = table.querySelectorAll('th.sortable');
+    var currentCol = -1;
+    var ascending = true;
+
+    function applySort() {
+        if (currentCol < 0) return;
+        var rows = Array.from(tbody.querySelectorAll('tr'));
+        var col = currentCol;
+        rows.sort(function(a, b) {
+            var cellA = a.cells[col];
+            var cellB = b.cells[col];
+            if (!cellA || !cellB) return 0;
+            var valA = (cellA.dataset.sortValue || cellA.textContent).trim();
+            var valB = (cellB.dataset.sortValue || cellB.textContent).trim();
+            var numA = Number(valA);
+            var numB = Number(valB);
+            if (!isNaN(numA) && !isNaN(numB) && valA !== '' && valB !== '') {
+                return ascending ? numA - numB : numB - numA;
+            }
+            var cmp = valA.localeCompare(valB, 'he');
+            return ascending ? cmp : -cmp;
+        });
+        rows.forEach(function(row) { tbody.appendChild(row); });
+    }
+
+    headers.forEach(function(th) {
+        th.addEventListener('click', function() {
+            var col = parseInt(th.dataset.col);
+            if (currentCol === col) {
+                ascending = !ascending;
+            } else {
+                currentCol = col;
+                ascending = true;
+            }
+            headers.forEach(function(h) {
+                h.querySelector('.sort-icon').className = 'bi bi-chevron-expand sort-icon';
+                h.classList.remove('sort-active');
+            });
+            th.querySelector('.sort-icon').className = ascending
+                ? 'bi bi-chevron-up sort-icon' : 'bi bi-chevron-down sort-icon';
+            th.classList.add('sort-active');
+
+            applySort();
+        });
+    });
+
+    /* שמירת סדר מיון אחרי ריענון HTMX */
+    document.body.addEventListener('htmx:afterSwap', function(e) {
+        if (e.detail.target && e.detail.target.id === 'appointments-table-body') {
+            applySort();
+        }
+    });
+})();
+</script>
+{% endblock %}
