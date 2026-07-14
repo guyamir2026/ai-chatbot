@@ -1,0 +1,171 @@
+{% extends "base.html" %}
+{% from "_macros/channel_badge.html" import channel_badge %}
+
+{% block content %}
+<div class="page-header">
+    <h1><i class="bi bi-people"></i> לקוחות</h1>
+    <p class="text-muted">רשימת כל הלקוחות עם היסטוריית תורים ותגיות. סה"כ: {{ total }} לקוחות.</p>
+</div>
+
+{# חיפוש + ייצוא #}
+<div class="card mb-3">
+    <div class="card-body">
+        <div style="display: flex; gap: var(--space-sm); align-items: center;">
+            <form method="GET" action="{{ url_for('customers') }}" style="display: flex; gap: var(--space-sm); flex: 1;">
+                <input type="text" class="form-control" name="q"
+                       value="{{ search }}"
+                       placeholder="חיפוש לפי שם / מזהה / טלפון..."
+                       autocomplete="off"
+                       style="flex: 1;">
+                <button type="submit" class="btn btn-primary">
+                    <i class="bi bi-search"></i> חיפוש
+                </button>
+                {% if search %}
+                <a href="{{ url_for('customers') }}" class="btn btn-secondary">נקה</a>
+                {% endif %}
+            </form>
+            <a href="{{ url_for('customers_export_csv', q=search) }}"
+               class="btn btn-secondary"
+               title="הורדה כ-CSV — מייצא את התוצאות הנוכחיות (כולל החיפוש)">
+                <i class="bi bi-download"></i> ייצוא CSV
+            </a>
+        </div>
+    </div>
+</div>
+
+{% if customers %}
+<div class="card">
+    <div class="card-body" style="padding: 0;">
+        <div class="table-wrapper">
+            <table>
+                <thead>
+                    <tr>
+                        <th>שם</th>
+                        <th>ערוץ</th>
+                        <th>טלפון</th>
+                        <th style="text-align: center;">תורים</th>
+                        <th>תור אחרון</th>
+                        <th>תגיות</th>
+                        <th>הערה</th>
+                        <th></th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for c in customers %}
+                    <tr>
+                        <td>
+                            <a href="{{ url_for('customer_card', user_id=c.user_id) }}"
+                               style="font-weight: 600;">
+                                {{ (c.username or c.user_id) | mask_name }}
+                            </a>
+                        </td>
+                        <td>{{ channel_badge(c.channel) }}</td>
+                        <td class="text-small text-muted">
+                            {{ c.phone_number | mask_phone if c.phone_number else '—' }}
+                        </td>
+                        <td style="text-align: center;">
+                            <strong>{{ c.appt_count or 0 }}</strong>
+                        </td>
+                        <td class="text-small">
+                            {{ c.last_appointment_date | il_date if c.last_appointment_date else '—' }}
+                        </td>
+                        <td>
+                            {% for t in c.auto_tags %}
+                                {% if t == 'VIP' %}
+                                <span class="badge badge-warning">⭐ VIP</span>
+                                {% elif t == 'חדש' %}
+                                <span class="badge badge-info">חדש</span>
+                                {% elif t == 'חוזר' %}
+                                <span class="badge badge-success">חוזר</span>
+                                {% elif t == 'רדום' %}
+                                <span class="badge badge-muted">רדום</span>
+                                {% endif %}
+                            {% endfor %}
+                            {% for t in c.manual_tags %}
+                            <span class="badge badge-primary">{{ t }}</span>
+                            {% endfor %}
+                        </td>
+                        <td>
+                            {% if c.has_note %}
+                            <button type="button"
+                                    class="btn btn-link btn-sm p-0"
+                                    style="background: none; border: none; cursor: pointer; padding: 0;"
+                                    title="צפייה בהערה"
+                                    onclick="showCustomerNote(this)"
+                                    data-note="{{ c.note_text }}"
+                                    data-customer="{{ c.username or c.user_id }}">
+                                <i class="bi bi-sticky-fill" style="color: var(--warning); font-size: 1.1rem;"></i>
+                            </button>
+                            {% endif %}
+                        </td>
+                        <td>
+                            <a href="{{ url_for('customer_card', user_id=c.user_id) }}"
+                               class="btn btn-sm btn-secondary">
+                                פרטים
+                            </a>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+{# מודל לצפייה בהערה — נפתח כשלוחצים על אייקון הסטיקי #}
+<div id="customer-note-overlay" class="appt-modal-overlay" style="display:none;"
+     onclick="if(event.target===this)closeCustomerNote()">
+    <div class="appt-modal" style="max-width: 500px;">
+        <div class="appt-modal-header">
+            <h3 id="customer-note-title">הערה</h3>
+            <button class="appt-modal-close" onclick="closeCustomerNote()">&times;</button>
+        </div>
+        <div class="appt-modal-body">
+            <p id="customer-note-body" style="white-space: pre-wrap; margin: 0;"></p>
+        </div>
+    </div>
+</div>
+
+<script>
+function showCustomerNote(btn) {
+    var note = btn.getAttribute('data-note') || '';
+    var customer = btn.getAttribute('data-customer') || '';
+    document.getElementById('customer-note-title').textContent = 'הערה: ' + customer;
+    document.getElementById('customer-note-body').textContent = note;
+    document.getElementById('customer-note-overlay').style.display = 'flex';
+}
+function closeCustomerNote() {
+    document.getElementById('customer-note-overlay').style.display = 'none';
+}
+</script>
+
+{% if total_pages > 1 %}
+<div style="display: flex; justify-content: center; gap: var(--space-sm); margin-top: var(--space-md);">
+    {% if page > 1 %}
+    <a href="{{ url_for('customers', q=search, page=page-1) }}" class="btn btn-secondary btn-sm">
+        <i class="bi bi-chevron-right"></i> הקודם
+    </a>
+    {% endif %}
+    <span class="text-muted" style="align-self: center;">
+        עמוד {{ page }} מתוך {{ total_pages }}
+    </span>
+    {% if page < total_pages %}
+    <a href="{{ url_for('customers', q=search, page=page+1) }}" class="btn btn-secondary btn-sm">
+        הבא <i class="bi bi-chevron-left"></i>
+    </a>
+    {% endif %}
+</div>
+{% endif %}
+
+{% else %}
+<div class="card">
+    <div class="card-body text-center text-muted">
+        {% if search %}
+        לא נמצאו לקוחות התואמים לחיפוש "{{ search }}".
+        {% else %}
+        אין עדיין לקוחות במערכת.
+        {% endif %}
+    </div>
+</div>
+{% endif %}
+{% endblock %}
