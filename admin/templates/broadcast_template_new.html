@@ -1,0 +1,385 @@
+{% extends "base.html" %}
+
+{# helper לקרוא ערך יחיד מ-form_data (שהוא dict[str, list[str]]
+   מ-request.form.to_dict(flat=False)). מחזיר ריק אם המפתח לא קיים. #}
+{% macro v(key, default='') -%}
+{%- set vals = form_data.get(key, []) -%}
+{{- (vals[0] if vals else default) -}}
+{%- endmacro %}
+
+{% block content %}
+<div class="page-header animate-fade-in" style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: var(--space-xs);">
+    <h1>
+        {% if editing_sid %}
+        <i class="bi bi-pencil-square"></i> עריכת תבנית WhatsApp
+        {% else %}
+        <i class="bi bi-file-earmark-plus"></i> תבנית WhatsApp חדשה
+        {% endif %}
+    </h1>
+    <a href="/broadcast/templates" class="btn btn-secondary">
+        <i class="bi bi-arrow-right"></i> חזרה לרשימה
+    </a>
+</div>
+
+{% if rollback_sid %}
+<div class="alert alert-warning" style="margin-bottom: var(--space-sm);">
+    <i class="bi bi-arrow-counterclockwise"></i>
+    שחזור אוטומטי הצליח — התבנית המקורית שוחזרה תחת
+    <code>{{ rollback_sid }}</code>. תיקנו את הקלט ולחצו "שמור" כדי
+    לעדכן את התבנית הזו (ה-SID ישתנה שוב בעת שמירה כי Twilio לא תומך
+    ב-edit במקום).
+</div>
+{% elif editing_sid %}
+<div class="alert alert-info" style="margin-bottom: var(--space-sm);">
+    <i class="bi bi-info-circle"></i>
+    מצב עריכה: לחיצה על "שמור" תיצור תבנית חדשה ב-Twilio ותמחק את
+    הישנה. ה-Content SID ישתנה — אם כבר יש קמפיינים שמסתמכים על
+    ה-SID הקודם, יש לעדכן אותם ידנית.
+</div>
+{% endif %}
+
+<!-- הסבר -->
+<div class="card animate-slide-up stagger-1" style="margin-bottom: var(--space-sm);">
+    <div class="card-body" style="padding: var(--space-sm);">
+        <p style="margin: 0; color: var(--text-secondary); line-height: 1.6;">
+            <i class="bi bi-info-circle"></i>
+            התבנית תיווצר ב-Twilio במצב <strong>"לא הוגשה"</strong>. אחרי
+            היצירה תועברו לטופס שליחה לאישור Meta — שלב חובה לפני שניתן לשלוח
+            broadcast.
+        </p>
+    </div>
+</div>
+
+<form method="POST" action="/broadcast/templates/new"
+      id="template-form"
+      style="display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-md); align-items: start;">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    {% if editing_sid %}
+    <input type="hidden" name="editing_sid" value="{{ editing_sid }}">
+    {% endif %}
+
+    <!-- ── טופס ────────────────────────────────────────────────────────── -->
+    <div class="card animate-slide-up stagger-2">
+        <div class="card-header">
+            <span><i class="bi bi-pencil-square"></i> פרטי התבנית</span>
+        </div>
+        <div class="card-body" style="display: flex; flex-direction: column; gap: var(--space-sm);">
+
+            <div>
+                <label class="form-label" for="friendly_name">
+                    שם תבנית פנימי <span style="color: var(--danger);">*</span>
+                </label>
+                <input type="text" id="friendly_name" name="friendly_name"
+                       class="form-control"
+                       placeholder="promo_2026"
+                       pattern="^[a-z][a-z0-9_]{0,63}$"
+                       value="{{ v('friendly_name') }}"
+                       required>
+                <div class="text-small text-muted" style="margin-top: 0.25rem;">
+                    אותיות קטנות באנגלית, מספרים וקווים תחתונים. עד 64 תווים.
+                </div>
+            </div>
+
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-xs);">
+                <div>
+                    <label class="form-label" for="language">שפה</label>
+                    {% set _selected_lang = v('language', default_language) %}
+                    <select id="language" name="language" class="form-control">
+                        {% for lang in languages %}
+                        <option value="{{ lang }}" {% if lang == _selected_lang %}selected{% endif %}>
+                            {{ {'he': 'עברית', 'en': 'English'}.get(lang, lang) }}
+                        </option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div>
+                    <label class="form-label" for="category">קטגוריה</label>
+                    {% set _selected_cat = v('category', default_category) %}
+                    <select id="category" name="category" class="form-control">
+                        {% for cat in categories %}
+                        <option value="{{ cat }}" {% if cat == _selected_cat %}selected{% endif %}>
+                            {{ {'MARKETING': 'שיווק', 'UTILITY': 'שירות', 'AUTHENTICATION': 'אימות'}.get(cat, cat) }}
+                        </option>
+                        {% endfor %}
+                    </select>
+                </div>
+            </div>
+
+            <div>
+                <label class="form-label" for="body">
+                    גוף ההודעה <span style="color: var(--danger);">*</span>
+                </label>
+                <textarea id="body" name="body" class="form-control"
+                          rows="6" maxlength="1024"
+                          placeholder="שלום {{ '{{1}}' }}, יש לנו מבצע חדש על {{ '{{2}}' }}!"
+                          required>{{ v('body') }}</textarea>
+                <div class="text-small text-muted" style="margin-top: 0.25rem;">
+                    עד 1024 תווים. השתמשו ב-<code>{{ '{{1}}' }}</code>, <code>{{ '{{2}}' }}</code>
+                    וכו' למשתנים דינמיים. הוסיפו ערך דוגמה לכל משתנה למטה.
+                </div>
+            </div>
+
+            <!-- ערכי דוגמה — מתעדכנים דינמית עם שינוי ב-body -->
+            <div id="sample-values-container">
+                <label class="form-label">ערכי דוגמה (חובה לאישור Meta)</label>
+                <div id="sample-values-fields" style="display: flex; flex-direction: column; gap: 0.4rem;">
+                    <div class="text-small text-muted">
+                        אין משתנים בגוף ההודעה כרגע.
+                    </div>
+                </div>
+                {# שמירת ערכי sample_N קיימים (אחרי כשל ולידציה) ב-data-attr
+                   כדי ש-JS יוכל לטעון אותם בעת אתחול. #}
+                <div id="sample-values-initial" style="display: none;"
+                     data-values='{{ form_data | tojson if form_data else "{}" }}'></div>
+            </div>
+
+            <!-- Header (Phase 2: text, Phase 3: image/video/document URL) -->
+            <div>
+                <label class="form-label">כותרת (Header) — אופציונלי</label>
+                <div style="display: flex; gap: 0.6rem; flex-wrap: wrap; margin-bottom: 0.4rem;">
+                    {% set _selected_kind = v('header_kind', 'none') %}
+                    {% for kind, label in [('none','ללא'),('text','טקסט'),('image','תמונה'),('video','וידאו'),('document','מסמך')] %}
+                    <label style="display: inline-flex; align-items: center; gap: 0.3rem; cursor: pointer;">
+                        <input type="radio" name="header_kind" value="{{ kind }}"
+                               class="header-kind-radio"
+                               {% if kind == _selected_kind %}checked{% endif %}>
+                        <span>{{ label }}</span>
+                    </label>
+                    {% endfor %}
+                </div>
+                <input type="text" id="header_text" name="header_text"
+                       class="form-control header-field header-field-text"
+                       maxlength="60"
+                       placeholder="כותרת קצרה (עד 60 תווים, בלי משתנים)"
+                       value="{{ v('header_text') }}"
+                       style="display: none;">
+                <input type="url" id="header_media_url" name="header_media_url"
+                       class="form-control header-field header-field-media"
+                       placeholder="https://example.com/banner.jpg"
+                       value="{{ v('header_media_url') }}"
+                       style="display: none;">
+                <div class="text-small text-muted header-help header-help-text"
+                     style="margin-top: 0.25rem; display: none;">
+                    טקסט בלבד עד 60 תווים. לא ניתן לכלול {{ '{{N}}' }}.
+                </div>
+                <div class="text-small text-muted header-help header-help-image"
+                     style="margin-top: 0.25rem; display: none;">
+                    URL ציבורי לתמונה (.jpg/.jpeg/.png). על Twilio להגיע אליו.
+                </div>
+                <div class="text-small text-muted header-help header-help-video"
+                     style="margin-top: 0.25rem; display: none;">
+                    URL ציבורי לוידאו (.mp4/.mov/.webm).
+                </div>
+                <div class="text-small text-muted header-help header-help-document"
+                     style="margin-top: 0.25rem; display: none;">
+                    URL ציבורי למסמך (.pdf).
+                </div>
+            </div>
+
+            <!-- Footer (Phase 2, אופציונלי) -->
+            <div>
+                <label class="form-label" for="footer">
+                    Footer — אופציונלי
+                </label>
+                <input type="text" id="footer" name="footer"
+                       class="form-control" maxlength="60"
+                       placeholder="הערה תחתונה (עד 60 תווים, בלי משתנים)"
+                       value="{{ v('footer') }}">
+                <div class="text-small text-muted" style="margin-top: 0.25rem;">
+                    מופיע באפור מתחת לגוף ההודעה.
+                </div>
+            </div>
+
+            <!-- Quick Reply buttons (אופציונלי) -->
+            <div>
+                <label class="form-label">
+                    כפתורי Quick Reply (אופציונלי, עד 3)
+                </label>
+                <div style="display: flex; flex-direction: column; gap: 0.35rem;">
+                    {% for i in range(1, 4) %}
+                    <input type="text" name="button_label_{{ i }}"
+                           class="form-control"
+                           maxlength="25"
+                           value="{{ v('button_label_' ~ i) }}"
+                           placeholder="כפתור {{ i }} (עד 25 תווים)">
+                    {% endfor %}
+                </div>
+                <div class="text-small text-muted" style="margin-top: 0.25rem;">
+                    אם אין צורך — השאירו ריק. מקסימום 3 כפתורים, 25 תווים לכל אחד.
+                </div>
+            </div>
+
+            <!-- CTA buttons (Phase 2) — הדדית בלעדיים מ-Quick Reply -->
+            <div>
+                <label class="form-label">
+                    Call-to-Action (אופציונלי, עד 2)
+                </label>
+                <div class="text-small text-muted" style="margin-bottom: 0.35rem;">
+                    בחרו URL או PHONE. <strong>אסור</strong> לערבב עם Quick
+                    Reply באותה תבנית — Meta WABA לא תומך בזה.
+                </div>
+                <div style="display: flex; flex-direction: column; gap: 0.5rem;">
+                    {% for i in range(1, 3) %}
+                    {% set _cta_type = v('cta_type_' ~ i) %}
+                    <div style="display: grid; grid-template-columns: 100px 1fr 1.5fr; gap: 0.35rem;">
+                        <select name="cta_type_{{ i }}" class="form-control">
+                            <option value="" {% if not _cta_type %}selected{% endif %}>— ללא —</option>
+                            <option value="URL" {% if _cta_type == 'URL' %}selected{% endif %}>URL</option>
+                            <option value="PHONE" {% if _cta_type == 'PHONE' %}selected{% endif %}>טלפון</option>
+                        </select>
+                        <input type="text" name="cta_label_{{ i }}"
+                               class="form-control" maxlength="25"
+                               value="{{ v('cta_label_' ~ i) }}"
+                               placeholder="טקסט הכפתור">
+                        <input type="text" name="cta_value_{{ i }}"
+                               class="form-control"
+                               value="{{ v('cta_value_' ~ i) }}"
+                               placeholder="https://… או +972501234567">
+                    </div>
+                    {% endfor %}
+                </div>
+            </div>
+
+            <div style="display: flex; gap: var(--space-xs); margin-top: var(--space-sm);">
+                <button type="submit" class="btn btn-primary">
+                    {% if editing_sid %}
+                    <i class="bi bi-save"></i> שמור שינויים
+                    {% else %}
+                    <i class="bi bi-plus-circle"></i> צור תבנית
+                    {% endif %}
+                </button>
+                <a href="/broadcast/templates" class="btn btn-secondary">ביטול</a>
+            </div>
+        </div>
+    </div>
+
+    <!-- ── תצוגה מקדימה ────────────────────────────────────────────────── -->
+    <div class="card animate-slide-up stagger-3" style="position: sticky; top: var(--space-sm);">
+        <div class="card-header">
+            <span><i class="bi bi-eye"></i> תצוגה מקדימה (חיה)</span>
+        </div>
+        <div class="card-body" style="background: #efeae2; min-height: 200px;">
+            {# הקוד שב-_broadcast_template_preview.html ירוץ עבור POST של HTMX #}
+            <div id="template-preview"
+                 hx-post="/broadcast/templates/new/preview"
+                 hx-trigger="keyup changed delay:400ms from:#template-form, change from:#template-form"
+                 hx-include="#template-form"
+                 hx-swap="innerHTML">
+                <div class="text-muted" style="text-align: center; padding: var(--space-md);">
+                    <i class="bi bi-arrow-left-circle"></i> מלאו את הטופס בצד —
+                    התצוגה המקדימה תתעדכן אוטומטית.
+                </div>
+            </div>
+        </div>
+    </div>
+</form>
+
+<script>
+// יצירת inputs דינמיים לערכי דוגמה לפי {{N}} בגוף.
+// רץ ב-keyup על body, בלי תלות חיצונית — שומר על קלות.
+(function () {
+    const bodyInput = document.getElementById('body');
+    const container = document.getElementById('sample-values-fields');
+    const PLACEHOLDER_RE = /\{\{(\d+)\}\}/g;
+
+    // טעינת ערכי sample_N קיימים מ-form_data (אחרי כשל ולידציה).
+    // form_data היא dict[str, list[str]] מ-Flask request.form.to_dict(flat=False).
+    let initialFromServer = {};
+    try {
+        const node = document.getElementById('sample-values-initial');
+        if (node && node.dataset.values) {
+            const raw = JSON.parse(node.dataset.values || '{}');
+            for (const [k, vals] of Object.entries(raw)) {
+                if (k.startsWith('sample_') && Array.isArray(vals) && vals.length) {
+                    initialFromServer[k] = vals[0];
+                }
+            }
+        }
+    } catch (e) { /* ignore JSON parse errors */ }
+
+    function syncSampleFields() {
+        const text = bodyInput.value || '';
+        const seen = [];
+        let m;
+        while ((m = PLACEHOLDER_RE.exec(text)) !== null) {
+            const idx = parseInt(m[1], 10);
+            if (!seen.includes(idx)) seen.push(idx);
+        }
+        seen.sort((a, b) => a - b);
+
+        // שומרים ערכים קיימים לפי שם השדה כדי שלא תאבדו את מה שמלאתם.
+        // התחלה: ערכים שחזרו מהשרת (form_data); אחר כך הקלט ה-DOM הנוכחי
+        // דורס אותם כדי לשמר את מה שהמשתמש הקליד מאז הכשל.
+        const existing = Object.assign({}, initialFromServer);
+        container.querySelectorAll('input').forEach(inp => {
+            existing[inp.name] = inp.value;
+        });
+
+        if (seen.length === 0) {
+            container.innerHTML = '<div class="text-small text-muted">אין משתנים בגוף ההודעה כרגע.</div>';
+            return;
+        }
+
+        container.innerHTML = '';
+        seen.forEach(i => {
+            const wrap = document.createElement('div');
+            wrap.style.display = 'flex';
+            wrap.style.gap = '0.4rem';
+            wrap.style.alignItems = 'center';
+
+            const label = document.createElement('span');
+            label.style.minWidth = '3rem';
+            label.style.fontFamily = 'monospace';
+            label.style.color = 'var(--text-muted)';
+            label.textContent = '{{' + i + '}}';
+
+            const input = document.createElement('input');
+            input.type = 'text';
+            input.name = 'sample_' + i;
+            input.className = 'form-control';
+            input.placeholder = 'ערך לדוגמה ל-{{' + i + '}}';
+            input.value = existing['sample_' + i] || '';
+
+            wrap.appendChild(label);
+            wrap.appendChild(input);
+            container.appendChild(wrap);
+        });
+    }
+
+    bodyInput.addEventListener('input', syncSampleFields);
+    syncSampleFields();
+})();
+
+// Phase 3: header_kind radio → מציג שדה רלוונטי + עזרה.
+// none/text/image/video/document.
+(function () {
+    const radios = document.querySelectorAll('.header-kind-radio');
+    const textField = document.querySelector('.header-field-text');
+    const mediaField = document.querySelector('.header-field-media');
+    const helps = {
+        text: document.querySelector('.header-help-text'),
+        image: document.querySelector('.header-help-image'),
+        video: document.querySelector('.header-help-video'),
+        document: document.querySelector('.header-help-document'),
+    };
+
+    function applyHeaderKind(kind) {
+        textField.style.display = (kind === 'text') ? '' : 'none';
+        mediaField.style.display = (kind === 'image' || kind === 'video' || kind === 'document') ? '' : 'none';
+        for (const k of Object.keys(helps)) {
+            if (helps[k]) helps[k].style.display = (k === kind) ? '' : 'none';
+        }
+        // ניקוי השדה הלא-רלוונטי כדי שלא יישלח בטעות (מונע שגיאת
+        // mutual-exclusion בולידציה אם המשתמש החליף בחירה).
+        if (kind !== 'text') textField.value = '';
+        if (kind !== 'image' && kind !== 'video' && kind !== 'document') {
+            mediaField.value = '';
+        }
+    }
+
+    radios.forEach(r => r.addEventListener('change', () => applyHeaderKind(r.value)));
+    const initial = document.querySelector('.header-kind-radio:checked');
+    applyHeaderKind(initial ? initial.value : 'none');
+})();
+</script>
+{% endblock %}
