@@ -1,0 +1,108 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="page-header animate-fade-in">
+    <h1><i class="bi bi-send-check"></i> שליחה לאישור Meta</h1>
+</div>
+
+<!-- תצוגת התבנית -->
+<div class="card animate-slide-up stagger-1" style="margin-bottom: var(--space-sm);">
+    <div class="card-header">
+        <span><i class="bi bi-eye"></i> התבנית שתישלח</span>
+    </div>
+    <div class="card-body">
+        <div style="margin-bottom: var(--space-sm);">
+            <code>{{ template.friendly_name }}</code>
+            <span class="text-small text-muted">{{ template.content_sid }}</span>
+        </div>
+        <div style="background: var(--bg-secondary); padding: var(--space-sm); border-radius: var(--radius); white-space: pre-wrap;">{{ template.body_text }}</div>
+        {% if template.footer_text %}
+        <div class="text-small text-muted" style="margin-top: 0.5rem; font-style: italic;">
+            {{ template.footer_text }}
+        </div>
+        {% endif %}
+    </div>
+</div>
+
+<!-- טופס שליחה -->
+<div class="card animate-slide-up stagger-2" style="margin-bottom: var(--space-sm);">
+    <div class="card-header">
+        <span><i class="bi bi-send"></i> פרטי הבקשה</span>
+    </div>
+    <div class="card-body">
+        <form method="POST" action="/broadcast/templates/{{ template.content_sid }}/submit">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+
+            <div class="form-group" style="margin-bottom: var(--space-sm);">
+                <label class="form-label" for="name">
+                    <strong>שם התבנית (Name):</strong>
+                </label>
+                <input type="text" name="name" id="name" class="form-control"
+                       value="{{ suggested_name }}" required
+                       pattern="[a-z0-9_]+"
+                       title="אותיות קטנות, ספרות וקווים תחתונים בלבד">
+                <div class="text-small text-muted" style="margin-top: 0.25rem;">
+                    חייב להיות ייחודי ב-WABA. אותיות קטנות, ספרות וקווים תחתונים בלבד
+                    (למשל: <code>order_update_v2</code>).
+                </div>
+            </div>
+
+            <div class="form-group" style="margin-bottom: var(--space-sm);">
+                <label class="form-label">
+                    <strong>קטגוריה:</strong>
+                </label>
+                <div style="display: flex; flex-direction: column; gap: 0.75rem; margin-top: 0.5rem;">
+                    <label style="display: flex; gap: 0.5rem; cursor: pointer; padding: 0.75rem; border: 1px solid var(--border); border-radius: var(--radius);">
+                        <input type="radio" name="category" value="UTILITY" required>
+                        <div>
+                            <strong>שירות</strong> — עדכון שירותי
+                            <div class="text-small text-muted">
+                                תזכורות תור, אישורי הזמנה, מצב משלוח, קבלות. הקטגוריה הנפוצה ביותר.
+                            </div>
+                        </div>
+                    </label>
+                    <label style="display: flex; gap: 0.5rem; cursor: pointer; padding: 0.75rem; border: 1px solid var(--border); border-radius: var(--radius);">
+                        <input type="radio" name="category" value="MARKETING">
+                        <div>
+                            <strong>שיווק</strong> — שיווק ומבצעים
+                            <div class="text-small text-muted">
+                                מבצעים, הטבות, הזמנות לאירועים. דורש opt-in מפורש מהלקוח (תיקון 40).
+                            </div>
+                        </div>
+                    </label>
+                    <label style="display: flex; gap: 0.5rem; cursor: pointer; padding: 0.75rem; border: 1px solid var(--border); border-radius: var(--radius);">
+                        <input type="radio" name="category" value="AUTHENTICATION">
+                        <div>
+                            <strong>אימות</strong> — אימות וקודי OTP
+                            <div class="text-small text-muted">
+                                סיסמאות חד-פעמיות, אימות דו-שלבי. מגבלות חמורות על תוכן.
+                            </div>
+                        </div>
+                    </label>
+                </div>
+            </div>
+
+            <!-- אזהרות -->
+            <div class="alert alert-warning" style="margin-bottom: var(--space-sm); padding: 0.75rem;">
+                <i class="bi bi-exclamation-triangle"></i>
+                <strong>חשוב לדעת:</strong>
+                <ul style="margin: 0.5rem 0 0 1rem; padding: 0;">
+                    <li>לא ניתן לערוך תבנית אחרי submission. אם תרצו לשנות — ליצור Content חדש.</li>
+                    <li>Meta עונה בד"כ תוך 1-24 שעות. עד אז הסטטוס יישאר "ממתינה לאישור".</li>
+                    <li>תבנית שנדחתה — ניתן לשלוח גרסה חדשה (כ-Content SID אחר) עם תיקונים.</li>
+                    <li>Meta עשויה לסווג מחדש UTILITY → MARKETING; הדבר משפיע על תמחור שליחה.</li>
+                </ul>
+            </div>
+
+            <div style="display: flex; gap: 0.5rem;">
+                <button type="submit" class="btn btn-primary">
+                    <i class="bi bi-send-check"></i> שלח לאישור Meta
+                </button>
+                <a href="/broadcast/templates" class="btn btn-secondary">
+                    ביטול
+                </a>
+            </div>
+        </form>
+    </div>
+</div>
+{% endblock %}
