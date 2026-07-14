@@ -1,0 +1,78 @@
+{#
+  Banner גלובלי לתקופת חסד (Phase 5).
+
+  הצגה רק כשרלוונטי:
+  - יותר מ-5 ימים בחסד  → לא מוצג (לא להציק)
+  - 1—5 ימים לפני סיום  → צהוב warning
+  - הסתיים              → אפור info, מזכיר שיש חיוב
+
+  ניתן לסגירה (X): הסגירה נשמרת ב-localStorage לפי "מזהה הופעה"
+  (מספר הימים הנותרים, או "ended"). כך הבאנר לא מציק שוב באותו יום,
+  אבל חוזר למחרת כשמספר הימים משתנה — כולל תזכורת ביום האחרון.
+
+  חשוב: הכל (כולל ה-<script>) חייב להיות בתוך ה-{% if %} — אחרת המחרוזת
+  "grace-banner" שב-script מופיעה ב-HTML גם כשאין באנר.
+
+  מועלה מ-base.html כך שמופיע מעל כל עמוד.
+#}
+
+{% set _show_ending = is_in_grace_period and days_remaining_in_grace > 0 and days_remaining_in_grace <= 5 %}
+{% if _show_ending or is_grace_ended %}
+  {% if _show_ending %}
+  <div id="grace-banner" class="grace-banner grace-banner--ending" role="status"
+       data-grace-id="{{ days_remaining_in_grace }}">
+    <div class="grace-banner__icon"><i class="bi bi-exclamation-triangle-fill"></i></div>
+    <div class="grace-banner__text">
+      תקופת החסד שלך מסתיימת בעוד
+      <strong>{{ days_remaining_in_grace }}
+        {% if days_remaining_in_grace == 1 %}יום{% else %}ימים{% endif %}</strong>.
+      שינויים שתבקשו לאחר מכן יחויבו בתעריף השעתי הסטנדרטי.
+    </div>
+    <a href="{{ url_for('my_plan') }}" class="grace-banner__action">
+      פרטים <i class="bi bi-chevron-left"></i>
+    </a>
+    <button type="button" class="grace-banner__close" aria-label="סגירה" title="סגירה">
+      <i class="bi bi-x-lg"></i>
+    </button>
+  </div>
+  {% else %}
+  <div id="grace-banner" class="grace-banner grace-banner--ended" role="status"
+       data-grace-id="ended">
+    <div class="grace-banner__icon"><i class="bi bi-clock-history"></i></div>
+    <div class="grace-banner__text">
+      תקופת החסד שלך הסתיימה. שינויים שתבקשו מספק השירות מחויבים בתעריף השעתי הסטנדרטי.
+    </div>
+    <a href="{{ url_for('my_plan') }}" class="grace-banner__action">
+      פרטים <i class="bi bi-chevron-left"></i>
+    </a>
+    <button type="button" class="grace-banner__close" aria-label="סגירה" title="סגירה">
+      <i class="bi bi-x-lg"></i>
+    </button>
+  </div>
+  {% endif %}
+
+  <script>
+  // סגירת באנר החסד: זוכר ב-localStorage לפי "מזהה הופעה" (מספר הימים /
+  // "ended"). כשמספר הימים משתנה (יום חדש) המזהה שונה והבאנר חוזר — כך
+  // "אפשר לסגור כל פעם" + תזכורת מתחדשת, כולל ביום האחרון.
+  (function () {
+    var banner = document.getElementById('grace-banner');
+    if (!banner) return;
+    var graceId = banner.getAttribute('data-grace-id');
+    var KEY = 'graceBannerDismissed';
+    try {
+      if (window.localStorage && localStorage.getItem(KEY) === graceId) {
+        banner.style.display = 'none';
+        return;
+      }
+    } catch (e) { /* localStorage חסום/מלא — נשאיר את הבאנר גלוי */ }
+    var closeBtn = banner.querySelector('.grace-banner__close');
+    if (closeBtn) {
+      closeBtn.addEventListener('click', function () {
+        banner.style.display = 'none';
+        try { localStorage.setItem(KEY, graceId); } catch (e) { /* התעלם */ }
+      });
+    }
+  })();
+  </script>
+{% endif %}
