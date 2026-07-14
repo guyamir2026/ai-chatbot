@@ -97,8 +97,8 @@ class TestEmbedJS:
     def test_telegram_footer_when_only_telegram(self, widget_client):
         client, _ = widget_client
         body = client.get("/widget/embed.js").data.decode("utf-8")
-        # TELEGRAM_BOT_USERNAME=test_bot ⇒ קישור t.me
-        assert "t.me/test_bot" in body
+        # TELEGRAM_BOT_USERNAME=test_bot ⇒ קישור telegram.me
+        assert "telegram.me/test_bot" in body
         assert "המשך בטלגרם" in body
 
     def test_iife_structure(self, widget_client):

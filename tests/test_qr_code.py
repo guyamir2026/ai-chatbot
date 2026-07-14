@@ -80,7 +80,7 @@ class TestQRPage:
         assert 'value="whatsapp"' in body
         # קישור wa.me נבנה עם digits בלבד (בלי + ובלי רווחים)
         assert "wa.me/14155551234" in body
-        assert "t.me/MyTestBot" in body
+        assert "telegram.me/MyTestBot" in body
 
     def test_link_uses_same_digits_as_qr_for_messy_number(
         self, tmp_path, monkeypatch,

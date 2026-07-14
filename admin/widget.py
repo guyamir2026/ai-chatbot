@@ -376,7 +376,7 @@ def _build_widget_config() -> dict:
     footer_url = ""
     if telegram_username:
         footer_label = "המשך בטלגרם"
-        footer_url = f"https://t.me/{telegram_username}"
+        footer_url = f"https://telegram.me/{telegram_username}"
     elif whatsapp_number:
         # פורמט נפוץ: "whatsapp:+972..." → ניקוי לקבלת מספר נטו עבור wa.me
         digits = "".join(ch for ch in whatsapp_number if ch.isdigit())

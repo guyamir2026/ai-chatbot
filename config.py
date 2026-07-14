@@ -173,7 +173,7 @@ DEPLOYMENT_NAME = (
 DEMO_MODE = os.getenv("DEMO_MODE", "false").lower() in ("true", "1", "yes")
 # קישור WhatsApp לרכישה — מופיע ב-CTA הצף ובבאנר הדמו. בלעדיו ה-CTA מוסתר.
 DEMO_CTA_WHATSAPP = os.getenv("DEMO_CTA_WHATSAPP", "").strip()
-# קישור לבוט הטלגרם החי (https://t.me/<bot>?start=demo) — מופיע בכרטיס
+# קישור לבוט הטלגרם החי (https://telegram.me/<bot>?start=demo) — מופיע בכרטיס
 # "דבר עם הבוט" ב-dashboard. בלעדיו הכרטיס מוסתר.
 DEMO_LIVE_BOT_URL = os.getenv("DEMO_LIVE_BOT_URL", "").strip()
 

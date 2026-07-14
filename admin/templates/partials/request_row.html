@@ -16,7 +16,7 @@
             {% endif %}
             {% if req.telegram_username %}
             <br>
-            <a class="text-small" href="{% if is_demo_session %}#{% else %}https://t.me/{{ req.telegram_username }}{% endif %}" target="_blank" rel="noopener">
+            <a class="text-small" href="{% if is_demo_session %}#{% else %}https://telegram.me/{{ req.telegram_username }}{% endif %}" target="_blank" rel="noopener">
                 @{{ req.telegram_username | mask_username }}
             </a>
             {% elif req.get('channel') == 'widget' %}

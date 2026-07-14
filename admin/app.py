@@ -3802,7 +3802,6 @@ self.addEventListener('notificationclick', (event) => {
                 # טופס אדמין — עדכון שדות גישה
                 username = request.form.get("admin_username", "").strip()
                 new_password = request.form.get("admin_password", "")
-                new_secret_key = request.form.get("admin_secret_key", "")
 
                 # tenant בפלטפורמה: הכניסה שלו היא משתמש admin_users (אימייל),
                 # לא env. הטופס משנה את סיסמת ה-**owner של ה-tenant הנוכחי**
@@ -3843,14 +3842,6 @@ self.addEventListener('notificationclick', (event) => {
                     os.environ["ADMIN_USERNAME"] = username
                     _cfg.ADMIN_USERNAME = username
                     changed.append("ADMIN_USERNAME")
-
-                # מפתח סודי — כותבים רק אם הוזן ערך חדש (לא חושפים את הקיים בתבנית)
-                if new_secret_key:
-                    _dotenv_set_key(str(env_path), "ADMIN_SECRET_KEY", new_secret_key)
-                    os.environ["ADMIN_SECRET_KEY"] = new_secret_key
-                    _cfg.ADMIN_SECRET_KEY = new_secret_key
-                    app.secret_key = new_secret_key
-                    changed.append("ADMIN_SECRET_KEY")
 
                 # סיסמה — שומרים כ-hash (לא plaintext) כדי לשמור על מודל האבטחה
                 if new_password:
@@ -3918,7 +3909,6 @@ self.addEventListener('notificationclick', (event) => {
             twilio_whatsapp_number=_status["twilio_whatsapp_number"],
             is_platform_tenant=_is_platform_tenant,
             admin_username=_admin_username,
-            has_secret_key=bool(_cfg.ADMIN_SECRET_KEY),
             meta_pages=meta_pages,
             meta_env_missing=meta_env_missing,
             meta_webhook_url=meta_webhook_url,
@@ -4011,7 +4001,7 @@ self.addEventListener('notificationclick', (event) => {
             return f"https://wa.me/{digits}", f"whatsapp_{digits}"
         bot_username = (identity["telegram_bot_username"] or "").lstrip("@")
         if bot_username:
-            return f"https://t.me/{bot_username}", bot_username
+            return f"https://telegram.me/{bot_username}", bot_username
         return "", ""
 
     def _generate_qr_png(target_url: str, scale: int, dark_color: str, with_logo: bool) -> io.BytesIO:

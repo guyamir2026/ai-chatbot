@@ -53,9 +53,9 @@
                      style="max-width: 280px; width: 100%; image-rendering: pixelated; border-radius: var(--radius-md);">
             </div>
             <p class="text-small text-muted">
-                <a id="qr-link-telegram" href="https://t.me/{{ bot_username }}" target="_blank" rel="noopener"
+                <a id="qr-link-telegram" href="https://telegram.me/{{ bot_username }}" target="_blank" rel="noopener"
                    style="display: {% if bot_username %}inline{% else %}none{% endif %};">
-                    t.me/{{ bot_username }}
+                    telegram.me/{{ bot_username }}
                 </a>
                 <a id="qr-link-whatsapp" href="https://wa.me/{{ whatsapp_digits }}" target="_blank" rel="noopener"
                    style="display: {% if whatsapp_digits and not bot_username %}inline{% else %}none{% endif %};">
