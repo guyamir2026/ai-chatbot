@@ -1,0 +1,51 @@
+<!-- fragment של התקדמות קמפיין (polling ב-HTMX) -->
+
+<div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 0.5rem;">
+    <div style="background: var(--bg-secondary); padding: 0.75rem; border-radius: var(--radius); text-align: center;">
+        <div class="text-small text-muted">סה"כ</div>
+        <div style="font-size: 1.5rem; font-weight: bold;">{{ progress.total }}</div>
+    </div>
+    <div style="background: rgba(0,123,255,0.1); padding: 0.75rem; border-radius: var(--radius); text-align: center;">
+        <div class="text-small text-muted">בתור</div>
+        <div style="font-size: 1.5rem; font-weight: bold;">{{ progress.queued }}</div>
+    </div>
+    <div style="background: rgba(0,123,255,0.15); padding: 0.75rem; border-radius: var(--radius); text-align: center;">
+        <div class="text-small text-muted">נשלחו</div>
+        <div style="font-size: 1.5rem; font-weight: bold;">{{ progress.sent }}</div>
+    </div>
+    <div style="background: rgba(40,167,69,0.15); padding: 0.75rem; border-radius: var(--radius); text-align: center;">
+        <div class="text-small text-muted"><i class="bi bi-check2"></i> נמסרו</div>
+        <div style="font-size: 1.5rem; font-weight: bold; color: #28a745;">{{ progress.delivered }}</div>
+    </div>
+    <div style="background: rgba(40,167,69,0.2); padding: 0.75rem; border-radius: var(--radius); text-align: center;">
+        <div class="text-small text-muted"><i class="bi bi-check2-all"></i> נקראו</div>
+        <div style="font-size: 1.5rem; font-weight: bold; color: #1e7e34;">{{ progress.read }}</div>
+    </div>
+    <div style="background: rgba(220,53,69,0.1); padding: 0.75rem; border-radius: var(--radius); text-align: center;">
+        <div class="text-small text-muted">נכשלו</div>
+        <div style="font-size: 1.5rem; font-weight: bold; color: #dc3545;">{{ progress.failed + progress.undelivered }}</div>
+    </div>
+</div>
+
+{% if progress.total > 0 %}
+{% set pct_done = ((progress.sent + progress.delivered + progress.read + progress.failed + progress.undelivered) * 100 // progress.total) %}
+<div style="margin-top: 0.75rem; background: var(--bg-secondary); border-radius: var(--radius); overflow: hidden; height: 0.5rem;">
+    <div style="width: {{ pct_done }}%; background: var(--primary); height: 100%; transition: width 0.3s;"></div>
+</div>
+<div class="text-small text-muted" style="margin-top: 0.25rem; text-align: center;">
+    {{ pct_done }}% הושלם
+</div>
+{% endif %}
+
+{% set status_label_map = {
+    'draft': 'draft',
+    'sending': 'בשליחה',
+    'completed': 'הושלם',
+    'failed': 'נכשל',
+    'paused': 'מושהה',
+    'scheduled': 'מתוזמן'
+} %}
+<div class="text-small text-muted" style="margin-top: 0.5rem; text-align: center;">
+    סטטוס קמפיין:
+    <strong>{{ status_label_map.get(campaign.status, campaign.status) }}</strong>
+</div>
