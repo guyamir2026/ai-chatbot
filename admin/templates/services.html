@@ -1,0 +1,134 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="page-header animate-fade-in">
+    <h1><i class="bi bi-scissors"></i> שירותים ומשך תור</h1>
+</div>
+
+<!-- רשימת שירותים -->
+<div class="card animate-slide-up stagger-1">
+    <div class="card-header">
+        <span><i class="bi bi-list-ul"></i> שירותים</span>
+        <button class="btn btn-primary btn-sm"
+                onclick="document.getElementById('add-service-form').style.display = document.getElementById('add-service-form').style.display === 'none' ? '' : 'none'">
+            <i class="bi bi-plus-circle"></i> הוסף שירות
+        </button>
+    </div>
+    <div class="card-body">
+        <!-- טופס הוספת שירות (מוסתר) -->
+        <div id="add-service-form" style="display: none; margin-bottom: var(--space-md); padding: var(--space-sm); background: var(--bg-secondary); border-radius: var(--radius-md);">
+            <h3 style="margin-bottom: var(--space-sm); font-size: 1rem;">הוספת שירות חדש</h3>
+            <form method="POST" action="/services/add">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: var(--space-xs); align-items: end;">
+                    <div class="form-group" style="margin: 0;">
+                        <label class="form-label">שם השירות</label>
+                        <input type="text" name="name" required class="form-control" placeholder="למשל: תספורת גברים">
+                    </div>
+                    <div class="form-group" style="margin: 0;">
+                        <label class="form-label">משך תור (דקות)</label>
+                        <input type="number" name="duration_minutes" value="60" min="5" step="5" required
+                               class="form-control" style="max-width: 140px;">
+                    </div>
+                    <div>
+                        <button type="submit" class="btn btn-primary btn-sm">
+                            <i class="bi bi-plus-circle"></i> הוסף
+                        </button>
+                    </div>
+                </div>
+            </form>
+        </div>
+
+        {% if services %}
+        <div class="table-wrapper">
+            <table>
+                <thead>
+                    <tr>
+                        <th>שם השירות</th>
+                        <th>משך תור</th>
+                        <th>פעולות</th>
+                    </tr>
+                </thead>
+                {% for svc in services %}
+                <tbody id="service-group-{{ svc.id }}">
+                    <!-- שורת תצוגה -->
+                    <tr id="service-{{ svc.id }}">
+                        <td class="fw-semibold">{{ svc.name }}</td>
+                        <td>{{ svc.duration_minutes }} דקות</td>
+                        <td>
+                            <div class="d-flex gap-sm">
+                                <button type="button" class="btn btn-secondary btn-sm"
+                                        onclick="toggleEditRow({{ svc.id }})">
+                                    <i class="bi bi-pencil"></i>
+                                </button>
+                                <form method="POST" action="/services/{{ svc.id }}/delete"
+                                      style="display: inline;"
+                                      data-service-name="{{ svc.name }}"
+                                      onsubmit="return confirm('למחוק את השירות \u0022' + this.dataset.serviceName + '\u0022?');">
+                                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                                    <button type="submit" class="btn btn-danger btn-sm">
+                                        <i class="bi bi-trash"></i>
+                                    </button>
+                                </form>
+                            </div>
+                        </td>
+                    </tr>
+                    <!-- שורת עריכה (מוסתרת) -->
+                    <tr id="edit-row-{{ svc.id }}" style="display: none; background: var(--bg-secondary);">
+                        <td colspan="3">
+                            <form method="POST" action="/services/{{ svc.id }}/edit"
+                                  style="display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: var(--space-xs); align-items: end;">
+                                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                                <div class="form-group" style="margin: 0;">
+                                    <label class="form-label">שם השירות</label>
+                                    <input type="text" name="name" value="{{ svc.name }}" required class="form-control form-control-sm">
+                                </div>
+                                <div class="form-group" style="margin: 0;">
+                                    <label class="form-label">משך תור (דקות)</label>
+                                    <input type="number" name="duration_minutes" value="{{ svc.duration_minutes }}"
+                                           min="5" step="5" required class="form-control form-control-sm" style="max-width: 140px;">
+                                </div>
+                                <div style="display: flex; align-items: center; gap: var(--space-sm);">
+                                    <button type="submit" class="btn btn-primary btn-sm">
+                                        <i class="bi bi-check-circle"></i>
+                                    </button>
+                                    <button type="button" class="btn btn-secondary btn-sm"
+                                            onclick="toggleEditRow({{ svc.id }})">
+                                        <i class="bi bi-x"></i>
+                                    </button>
+                                </div>
+                            </form>
+                        </td>
+                    </tr>
+                </tbody>
+                {% endfor %}
+            </table>
+        </div>
+        {% else %}
+        <div class="empty-state">
+            <i class="bi bi-scissors"></i>
+            <p>אין שירותים מוגדרים.</p>
+            <p class="text-muted" style="font-size: 0.9rem;">
+                הוסיפו שירותים כדי לקבוע משך תור שונה לכל סוג טיפול.<br>
+                ברירת מחדל: 60 דקות לכל תור.
+            </p>
+        </div>
+        {% endif %}
+
+        <small class="text-muted" style="display: block; margin-top: var(--space-sm); padding: 0 var(--space-sm);">
+            <i class="bi bi-info-circle"></i>
+            משך התור משפיע על חישוב שעות פנויות ביומן Google ועל גודל האירוע ביומן.
+            שירותים שלא מוגדרים כאן יקבלו ברירת מחדל של 60 דקות.
+        </small>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+function toggleEditRow(id) {
+    var editRow = document.getElementById('edit-row-' + id);
+    editRow.style.display = editRow.style.display === 'none' ? '' : 'none';
+}
+</script>
+{% endblock %}
