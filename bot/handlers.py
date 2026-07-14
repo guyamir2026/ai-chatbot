@@ -33,7 +33,7 @@ from telegram.ext import ContextTypes, ConversationHandler
 from ai_chatbot import database as db
 from ai_chatbot.llm import generate_answer, strip_source_citation, sanitize_telegram_html, maybe_summarize
 from ai_chatbot.intent import Intent, detect_intent_with_llm, get_direct_response
-from ai_chatbot.business_hours import is_currently_open, get_weekly_schedule_text, get_out_of_office_agent_notice
+from ai_chatbot.business_hours import is_currently_open, get_weekly_schedule_text, get_out_of_office_agent_notice, DAY_NAMES_HE
 from ai_chatbot.config import (
     ADMIN_URL,
     get_business_config,
@@ -1132,21 +1132,28 @@ async def _location_skip_ratelimit(update: Update, context: ContextTypes.DEFAULT
 # ─── Save Contact (vCard) Button ─────────────────────────────────────────────
 
 def _vcard_escape(value: str) -> str:
-    """Escape לתווים מיוחדים ב-vCard לפי RFC 6350 — backslash, נקודה-פסיק ופסיק."""
-    return value.replace("\\", "\\\\").replace(";", "\\;").replace(",", "\\,")
+    """Escape לתווים מיוחדים ב-vCard לפי RFC 6350 — backslash, נקודה-פסיק,
+    פסיק, וירידת-שורה (‏\\n בתוך ערך — למשל שעות פעילות רב-שורתיות ב-NOTE)."""
+    return (
+        value.replace("\\", "\\\\")
+        .replace(";", "\\;")
+        .replace(",", "\\,")
+        .replace("\n", "\\n")
+    )
 
 
 def _generate_vcard_text() -> str:
     """יצירת טקסט vCard מפרטי העסק שבקונפיגורציה."""
-    # בניית סיכום שעות מטבלת business_hours
-    hours_parts = []
-    all_hours = db.get_all_business_hours()
-    day_abbr = {0: "Su", 1: "Mo", 2: "Tu", 3: "We", 4: "Th", 5: "Fr", 6: "Sa"}
-    for h in all_hours:
-        if not h["is_closed"]:
-            d = day_abbr.get(h["day_of_week"], "?")
-            hours_parts.append(f"{d} {h['open_time']}-{h['close_time']}")
-    hours_summary = " | ".join(hours_parts) if hours_parts else ""
+    # סיכום שעות ל-NOTE — שם יום בעברית, יום בשורה נפרדת (כולל ימים סגורים),
+    # כדי שבכרטיס איש הקשר הלוח יופיע מסודר ולא כשורה אחת צפופה.
+    hours_lines = []
+    for h in db.get_all_business_hours():
+        day = DAY_NAMES_HE.get(h["day_of_week"], "?")
+        if h["is_closed"]:
+            hours_lines.append(f"{day}: סגור")
+        else:
+            hours_lines.append(f"{day}: {h['open_time']}-{h['close_time']}")
+    hours_summary = "שעות פעילות:\n" + "\n".join(hours_lines) if hours_lines else ""
 
     _biz = get_business_config()
     escaped_name = _vcard_escape(_biz.name)
