@@ -1,0 +1,202 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="page-header animate-fade-in">
+    <h1><i class="bi bi-people-fill"></i> מערכת הפניות</h1>
+</div>
+
+<!-- הסבר על מערכת ההפניות -->
+<div class="card animate-slide-up" style="margin-bottom: var(--space-sm);">
+    <div class="card-body" style="line-height: 1.8;">
+        <p style="margin: 0 0 0.5rem 0;">
+            {% if referral_enabled %}
+            <span class="badge badge-success">פעיל</span>
+            {% else %}
+            <span class="badge badge-warning">כבוי</span>
+            {% endif %}
+            <i class="bi bi-info-circle" style="color: var(--brand-blue); margin-right: 0.25rem;"></i>
+            <strong>איך זה עובד?</strong>
+            <a href="#" onclick="document.querySelector('[name=referral_enabled]').scrollIntoView({behavior:'smooth'}); return false;"
+               class="text-small" style="margin-right: 0.5rem;">
+                (הגדרות)
+            </a>
+        </p>
+        <ul style="margin: 0; padding-right: var(--space-md);">
+            <li>לקוח שהתור שלו <b>אושר</b> מקבל <b>קוד הפניה אישי</b> (קישור ייחודי) — לשליחה לחברים.</li>
+            <li>כשחבר/ה מתחיל/ה שיחה עם הבוט דרך הקישור — נוצרת <b>הפניה בסטטוס "ממתין"</b>.</li>
+            <li>ברגע שהחבר/ה <b>קובע/ת ומשלים/ה תור ראשון</b> — ההפניה עוברת לסטטוס <b>"הושלם"</b> ושני הצדדים מקבלים <b>{{ referral_discount|int }}% הנחה ל-{{ referral_validity_days }} ימים</b>.</li>
+        </ul>
+    </div>
+</div>
+
+<!-- הגדרות מערכת הפניות -->
+<div class="card animate-slide-up" style="margin-bottom: var(--space-sm);">
+    <div class="card-header">
+        <span><i class="bi bi-gear"></i> הגדרות</span>
+    </div>
+    <div class="card-body">
+        <form method="POST" action="{{ url_for('referrals') }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <input type="hidden" name="form_type" value="referral">
+
+            <div class="text-small text-muted" style="margin-bottom: var(--space-md);">
+                לקוחות שהתור שלהם אושר מקבלים קישור הפניה אישי. כשחבר נרשם דרך הקישור ומשלים תור —
+                שני הצדדים מקבלים הנחה. כברירת מחדל הפיצ'ר כבוי.
+            </div>
+
+            <div class="form-group" style="margin-bottom: var(--space-md);">
+                <label style="display: flex; align-items: center; gap: var(--space-sm); cursor: pointer;">
+                    <input type="checkbox" name="referral_enabled" value="1"
+                           {% if referral_enabled %}checked{% endif %}
+                           style="width: 18px; height: 18px;">
+                    <span style="font-weight: 600;">הפעלת מערכת הפניות</span>
+                </label>
+            </div>
+
+            <div class="form-group" style="margin-bottom: var(--space-md);">
+                <label class="form-label" for="referral_discount" style="font-weight: 600;">אחוז הנחה</label>
+                <div class="text-small text-muted" style="margin-bottom: var(--space-xs);">
+                    כמה אחוז הנחה יקבלו המפנה והמופנה.
+                </div>
+                <div style="display: flex; align-items: center; gap: var(--space-xs);">
+                    <input type="number" class="form-control" id="referral_discount"
+                           name="referral_discount"
+                           value="{{ referral_discount|default(10, true)|int if referral_discount == referral_discount|int else referral_discount|default(10, true) }}"
+                           min="1" max="100" step="1"
+                           style="max-width: 100px; direction: ltr; text-align: center;">
+                    <span>%</span>
+                </div>
+            </div>
+
+            <div class="form-group" style="margin-bottom: var(--space-md);">
+                <label class="form-label" for="referral_validity_days" style="font-weight: 600;">תקופת תוקף ההנחה</label>
+                <div class="text-small text-muted" style="margin-bottom: var(--space-xs);">
+                    לכמה ימים ההנחה תהיה בתוקף מרגע ההפעלה.
+                </div>
+                <div style="display: flex; align-items: center; gap: var(--space-xs);">
+                    <input type="number" class="form-control" id="referral_validity_days"
+                           name="referral_validity_days"
+                           value="{{ referral_validity_days|default(60, true) }}"
+                           min="1" max="730" step="1"
+                           style="max-width: 100px; direction: ltr; text-align: center;">
+                    <span>ימים</span>
+                </div>
+            </div>
+
+            <button type="submit" class="btn btn-primary">
+                <i class="bi bi-check-lg"></i> שמירת הגדרות הפניות
+            </button>
+        </form>
+    </div>
+</div>
+
+<!-- סטטיסטיקות -->
+<div class="stats-grid">
+    <div class="stat-card gradient-blue animate-slide-up stagger-1">
+        <div class="stat-icon"><i class="bi bi-share"></i></div>
+        <div class="stat-value">{{ stats.total_referrals }}</div>
+        <div class="stat-label">סה"כ הפניות</div>
+    </div>
+    <div class="stat-card gradient-success animate-slide-up stagger-2">
+        <div class="stat-icon"><i class="bi bi-check-circle"></i></div>
+        <div class="stat-value">{{ stats.completed_referrals }}</div>
+        <div class="stat-label">הפניות שהושלמו</div>
+    </div>
+    <div class="stat-card gradient-warning animate-slide-up stagger-3">
+        <div class="stat-icon"><i class="bi bi-hourglass-split"></i></div>
+        <div class="stat-value">{{ stats.pending_referrals }}</div>
+        <div class="stat-label">ממתינות להשלמה</div>
+    </div>
+    <div class="stat-card gradient-purple animate-slide-up stagger-4">
+        <div class="stat-icon"><i class="bi bi-gift"></i></div>
+        <div class="stat-value">{{ stats.active_credits }}</div>
+        <div class="stat-label">זיכויים פעילים</div>
+    </div>
+</div>
+
+<!-- מפנים מובילים -->
+<div class="card animate-slide-up stagger-3" style="margin-bottom: var(--space-sm);">
+    <div class="card-header">
+        <span><i class="bi bi-trophy"></i> מפנים מובילים</span>
+    </div>
+    <div class="card-body">
+        {% if top_referrers %}
+        <div class="table-responsive">
+            <table class="table">
+                <thead>
+                    <tr>
+                        <th>#</th>
+                        <th>לקוח</th>
+                        <th>הפניות שהושלמו</th>
+                        <th>סה"כ הפניות</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for ref in top_referrers %}
+                    <tr>
+                        <td>{{ loop.index }}</td>
+                        <td>{{ ref.display_name }}</td>
+                        <td><span class="badge badge-success">{{ ref.completed_referrals }}</span></td>
+                        <td>{{ ref.total_referrals }}</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% else %}
+        <div class="empty-state">
+            <i class="bi bi-people"></i>
+            <p>אין מפנים עדיין. הפניות יופיעו כאן כשלקוחות ישתפו את הקוד שלהם.</p>
+        </div>
+        {% endif %}
+    </div>
+</div>
+
+<!-- כל ההפניות -->
+<div class="card animate-slide-up stagger-4">
+    <div class="card-header">
+        <span><i class="bi bi-list-ul"></i> כל ההפניות</span>
+    </div>
+    <div class="card-body">
+        {% if all_referrals %}
+        <div class="table-responsive">
+            <table class="table">
+                <thead>
+                    <tr>
+                        <th>קוד</th>
+                        <th>מפנה</th>
+                        <th>מופנה</th>
+                        <th>סטטוס</th>
+                        <th>נוצר</th>
+                        <th>הושלם</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for ref in all_referrals %}
+                    <tr>
+                        <td><code>{{ ref.code }}</code></td>
+                        <td>{{ ref.referrer_name or ref.referrer_id }}</td>
+                        <td>{{ ref.referred_name or ref.referred_id or '—' }}</td>
+                        <td>
+                            {% if ref.status == 'completed' %}
+                            <span class="badge badge-success">הושלם</span>
+                            {% else %}
+                            <span class="badge badge-warning">ממתין</span>
+                            {% endif %}
+                        </td>
+                        <td>{{ ref.created_at|il_datetime }}</td>
+                        <td>{{ ref.completed_at|il_datetime if ref.completed_at else '—' }}</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% else %}
+        <div class="empty-state">
+            <i class="bi bi-share"></i>
+            <p>אין הפניות עדיין.</p>
+        </div>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}
