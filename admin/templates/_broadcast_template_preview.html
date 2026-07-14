@@ -1,0 +1,137 @@
+{# Preview partial — מוחזר ע"י HTMX בכל שינוי בטופס #}
+<div id="template-preview-content">
+    {% if errors %}
+    <div class="alert alert-danger" style="margin-bottom: var(--space-sm);">
+        <strong><i class="bi bi-exclamation-triangle"></i> שגיאות:</strong>
+        <ul style="margin: 0.4rem 0 0 1.25rem; padding: 0;">
+            {% for e in errors %}
+            <li>{{ e }}</li>
+            {% endfor %}
+        </ul>
+    </div>
+    {% endif %}
+
+    {# הדמיית בועת הודעה ב-WhatsApp — רקע ירקרק, פינות מעוגלות #}
+    <div class="wa-bubble" style="
+        background: #d9fdd3;
+        border-radius: 8px;
+        padding: 0.5rem 0.6rem;
+        max-width: 480px;
+        box-shadow: 0 1px 1px rgba(0,0,0,0.06);
+        font-size: 0.95rem;
+        line-height: 1.5;
+        color: #1f1f1f;
+    ">
+        {# Phase 3: תצוגת media header — לפני header_text הטקסטואלי #}
+        {% if spec.header_media_url and spec.header_media_url.strip() and spec.header_media_type %}
+        <div style="margin: -0.5rem -0.6rem 0.5rem; border-radius: 6px 6px 0 0; overflow: hidden; background: #c8e6c4;">
+            {% if spec.header_media_type == 'image' %}
+            {# wrapper נפרד לתמונה ול-fallback כדי שטוגל החלפה יעבוד גם
+               כש-HTMX מעדכן את ה-DOM (nextElementSibling היה שביר). #}
+            <div class="wa-img-wrap" style="position: relative;">
+                <img src="{{ spec.header_media_url }}" alt="header preview"
+                     referrerpolicy="no-referrer"
+                     style="width: 100%; max-height: 220px; object-fit: cover; display: block;"
+                     onload="this.parentElement.querySelector('.wa-img-fallback').style.display='none';"
+                     onerror="this.style.display='none'; this.parentElement.querySelector('.wa-img-fallback').style.display='flex';">
+                <div class="wa-img-fallback"
+                     style="display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 1rem 0.5rem; color: #667781; gap: 0.25rem; text-align: center; background: #f0e9d7;">
+                    <i class="bi bi-image" style="font-size: 2rem;"></i>
+                    <span style="font-size: 0.85rem;">לא ניתן להציג preview של התמונה כאן</span>
+                    <span style="font-size: 0.75rem; opacity: 0.85;">
+                        (חלק מהמארחים חוסמים embedding — Twilio/Meta יורידו את הקובץ ישירות בעת המשלוח)
+                    </span>
+                    <a href="{{ spec.header_media_url }}" target="_blank" rel="noopener noreferrer"
+                       style="font-size: 0.8rem; color: #027eb5; text-decoration: underline;">
+                        <i class="bi bi-box-arrow-up-right"></i> פתח ב-tab חדש לבדיקה
+                    </a>
+                </div>
+            </div>
+            {% elif spec.header_media_type == 'video' %}
+            <div style="display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 1rem 0.5rem; color: #fff; gap: 0.4rem; background: #1f1f1f; text-align: center;">
+                <i class="bi bi-camera-video" style="font-size: 2rem;"></i>
+                <span style="font-size: 0.85rem;">וידאו (יישלח כ-header media)</span>
+                <a href="{{ spec.header_media_url }}" target="_blank" rel="noopener noreferrer"
+                   style="font-size: 0.8rem; color: #6cd1ff; text-decoration: underline;">
+                    <i class="bi bi-box-arrow-up-right"></i> פתח ב-tab חדש לבדיקה
+                </a>
+            </div>
+            {% elif spec.header_media_type == 'document' %}
+            <div style="display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 0.75rem 0.5rem; color: #667781; gap: 0.4rem; text-align: center;">
+                <i class="bi bi-file-earmark-pdf" style="font-size: 2rem; color: #d44;"></i>
+                <span style="font-size: 0.85rem;">מסמך (PDF)</span>
+                <a href="{{ spec.header_media_url }}" target="_blank" rel="noopener noreferrer"
+                   style="font-size: 0.8rem; color: #027eb5; text-decoration: underline;">
+                    <i class="bi bi-box-arrow-up-right"></i> פתח ב-tab חדש לבדיקה
+                </a>
+            </div>
+            {% endif %}
+        </div>
+        {% endif %}
+        {% if spec.header_text and spec.header_text.strip() %}
+        <div style="font-weight: 700; margin-bottom: 0.4rem; word-break: break-word;">
+            {{ spec.header_text }}
+        </div>
+        {% endif %}
+        <div style="white-space: pre-wrap; word-break: break-word; padding: 0 0.25rem;">{{ rendered_body or '(הזינו טקסט בגוף ההודעה)' }}</div>
+        {% if spec.footer and spec.footer.strip() %}
+        <div style="color: #667781; font-size: 0.8rem; margin-top: 0.5rem; padding: 0 0.25rem; word-break: break-word;">
+            {{ spec.footer }}
+        </div>
+        {% endif %}
+    </div>
+
+    {% if spec.quick_reply_buttons %}
+    <div style="display: flex; flex-direction: column; gap: 0.35rem; margin-top: 0.5rem; max-width: 480px;">
+        {% for label in spec.quick_reply_buttons %}
+        {% if label.strip() %}
+        <div style="
+            border: 1px solid #d1d7db;
+            border-radius: 8px;
+            background: #ffffff;
+            text-align: center;
+            padding: 0.55rem 0.75rem;
+            color: #00a884;
+            font-weight: 500;
+            font-size: 0.9rem;
+        ">
+            <i class="bi bi-reply"></i> {{ label }}
+        </div>
+        {% endif %}
+        {% endfor %}
+    </div>
+    {% endif %}
+
+    {% if spec.cta_buttons %}
+    <div style="display: flex; flex-direction: column; gap: 0.35rem; margin-top: 0.5rem; max-width: 480px;">
+        {% for btn in spec.cta_buttons %}
+        {% if btn.label and btn.label.strip() and btn.value and btn.value.strip() %}
+        <div style="
+            border: 1px solid #d1d7db;
+            border-radius: 8px;
+            background: #ffffff;
+            text-align: center;
+            padding: 0.55rem 0.75rem;
+            color: #027eb5;
+            font-weight: 500;
+            font-size: 0.9rem;
+        ">
+            {% if btn.type and btn.type.upper() == 'PHONE' %}
+            <i class="bi bi-telephone"></i>
+            {% else %}
+            <i class="bi bi-box-arrow-up-right"></i>
+            {% endif %}
+            {{ btn.label }}
+        </div>
+        {% endif %}
+        {% endfor %}
+    </div>
+    {% endif %}
+
+    {% if indices %}
+    <div class="text-small text-muted" style="margin-top: var(--space-sm);">
+        <i class="bi bi-info-circle"></i>
+        משתנים בתבנית: {% for i in indices %}<code>{{ "{{" }}{{ i }}{{ "}}" }}</code>{% if not loop.last %}, {% endif %}{% endfor %}
+    </div>
+    {% endif %}
+</div>
