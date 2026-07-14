@@ -1,0 +1,149 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="page-header animate-fade-in" style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: var(--space-xs);">
+    <h1><i class="bi bi-send"></i> קמפיינים יזומים</h1>
+    <a href="/broadcast/campaigns/new" class="btn btn-primary">
+        <i class="bi bi-plus-circle"></i> קמפיין חדש
+    </a>
+</div>
+
+<div class="card animate-slide-up stagger-1" style="margin-bottom: var(--space-sm);">
+    <div class="card-body" style="padding: var(--space-sm);">
+        <p style="margin: 0; color: var(--text-secondary); line-height: 1.6;">
+            <i class="bi bi-info-circle"></i>
+            קמפיינים יזומים מבוססים על תבניות Meta (HSM). ניתן להכין
+            <strong>טיוטה</strong> מכל תבנית (גם לפני אישור Meta) — למפות משתנים,
+            לבחור קהל, ולצפות בתצוגה מקדימה. <strong>שליחה בפועל</strong> אפשרית רק
+            כשהתבנית במצב <em>אושרה</em>.
+        </p>
+    </div>
+</div>
+
+{% set _status_labels = {
+    'draft': 'טיוטה',
+    'scheduled': 'מתוזמן',
+    'sending': 'בשליחה',
+    'completed': 'הסתיים',
+    'failed': 'נכשל',
+    'paused': 'מושהה',
+} %}
+{% set _category_labels = {
+    'MARKETING': 'שיווק',
+    'UTILITY': 'שירות',
+    'AUTHENTICATION': 'אימות',
+} %}
+
+<div class="card animate-slide-up stagger-2">
+    <div class="card-header">
+        <span><i class="bi bi-list-check"></i> קמפיינים ({{ campaigns|length }})</span>
+    </div>
+    <div class="card-body" style="padding: 0;">
+        {% if campaigns %}
+        <div style="overflow-x: auto;">
+        <table class="data-table" style="width: 100%;">
+            <thead>
+                <tr>
+                    <th>כותרת / תבנית</th>
+                    <th>סטטוס</th>
+                    <th>נוצר</th>
+                    <th>עודכן</th>
+                    <th>פעולות</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for c in campaigns %}
+                <tr>
+                    <td>
+                        {# אם הכותרת זהה לשם התבנית — לא מציגים פעמיים, רק את שם התבנית #}
+                        {% if c.title and c.title != c.template_name %}
+                        <strong>{{ c.title }}</strong>
+                        <div class="text-small text-muted">
+                            <code>{{ c.template_name }}</code>
+                            {% if c.template_approval_status == "approved" %}
+                            <span class="badge badge-success" title="אושר ע״י Meta">✓</span>
+                            {% elif c.template_approval_status != "unknown" %}
+                            <span class="badge badge-warning" title="{{ c.template_approval_status }}">!</span>
+                            {% endif %}
+                        </div>
+                        {% else %}
+                        <code style="font-size: 0.95em;">{{ c.template_name }}</code>
+                        {% if c.template_approval_status == "approved" %}
+                        <span class="badge badge-success" title="אושר ע״י Meta">✓</span>
+                        {% elif c.template_approval_status != "unknown" %}
+                        <span class="badge badge-warning" title="{{ c.template_approval_status }}">!</span>
+                        {% endif %}
+                        {% endif %}
+                    </td>
+                    <td>
+                        {% set status_class = {
+                            'draft': 'secondary', 'scheduled': 'primary',
+                            'sending': 'warning', 'completed': 'success',
+                            'failed': 'danger', 'paused': 'secondary'
+                        }.get(c.status, 'secondary') %}
+                        <span class="badge badge-{{ status_class }}">{{ _status_labels.get(c.status, c.status) }}</span>
+                        {% if c.status == 'scheduled' and c.scheduled_at %}
+                        <div class="text-small text-muted" title="{{ c.scheduled_at }}">
+                            <i class="bi bi-clock"></i> {{ c.scheduled_at|il_datetime_local }}
+                        </div>
+                        {% endif %}
+                    </td>
+                    <td class="text-small text-muted">{{ c.created_at|il_datetime }}</td>
+                    <td class="text-small text-muted">{{ c.updated_at|il_datetime }}</td>
+                    <td>
+                        <a href="/broadcast/campaigns/{{ c.id }}" class="btn btn-sm btn-secondary"
+                           title="פירוט והתקדמות">
+                            <i class="bi bi-eye"></i>
+                        </a>
+                        {% if c.status == 'draft' %}
+                        <a href="/broadcast/campaigns/{{ c.id }}/edit" class="btn btn-sm btn-primary"
+                           title="ערוך טיוטה" aria-label="ערוך טיוטה">
+                            <i class="bi bi-pencil"></i>
+                        </a>
+                        <form method="POST" action="/broadcast/campaigns/{{ c.id }}/delete"
+                              style="display: inline;"
+                              onsubmit="return confirm('למחוק את הקמפיין?');">
+                            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                            <button type="submit" class="btn btn-sm btn-soft-danger"
+                                    title="מחק קמפיין">
+                                <i class="bi bi-trash"></i>
+                            </button>
+                        </form>
+                        {% elif c.status == 'scheduled' %}
+                        {# עריכת קמפיין מתוזמן: ביטול תזמון ומעבר לעריכה #}
+                        <form method="POST" action="/broadcast/campaigns/{{ c.id }}/cancel-schedule"
+                              style="display: inline;"
+                              onsubmit="return confirm('עריכה תבטל את התזמון. להמשיך?');">
+                            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                            <input type="hidden" name="next" value="edit">
+                            <button type="submit" class="btn btn-sm btn-primary"
+                                    title="בטל תזמון וערוך" aria-label="בטל תזמון וערוך">
+                                <i class="bi bi-pencil"></i>
+                            </button>
+                        </form>
+                        <form method="POST" action="/broadcast/campaigns/{{ c.id }}/delete"
+                              style="display: inline;"
+                              onsubmit="return confirm('למחוק את הקמפיין המתוזמן?');">
+                            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                            <button type="submit" class="btn btn-sm btn-soft-danger"
+                                    title="מחק קמפיין">
+                                <i class="bi bi-trash"></i>
+                            </button>
+                        </form>
+                        {% endif %}
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        </div>
+        {% else %}
+        <div style="padding: var(--space-md); text-align: center; color: var(--text-muted);">
+            <i class="bi bi-inbox" style="font-size: 2rem; display: block; margin-bottom: 0.5rem;"></i>
+            אין קמפיינים עדיין.
+            <a href="/broadcast/campaigns/new">צרו קמפיין ראשון →</a>
+        </div>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}
