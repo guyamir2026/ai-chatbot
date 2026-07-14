@@ -1,0 +1,134 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="page-header animate-fade-in">
+    <h1><i class="bi bi-chat-dots"></i> יומן שיחות</h1>
+</div>
+
+<!-- Transfer Notifications (pending agent requests — רק כאלה שלא בשיחה חיה) -->
+{% if pending_requests %}
+<div class="transfer-alerts animate-slide-up">
+    {% for req in pending_requests %}
+    {% if req.user_id not in active_live_chats %}
+    <div class="alert alert-warning transfer-alert">
+        <div class="transfer-alert-content">
+            <i class="bi bi-bell-fill"></i>
+            <div>
+                <strong>בקשת העברה לנציג</strong> —
+                {{ req.username|mask_name }}{% set _note_user_id = req.user_id %}{% include "partials/user_note_icon.html" %}
+                {% if req.telegram_username %}(@{{ req.telegram_username | mask_username }}){% endif %}
+                <br>
+                <span class="text-small">{{ req.message }}</span>
+                {% if req.created_at %}
+                <br>
+                <span class="text-small text-muted">{{ req.created_at|il_datetime }}</span>
+                {% endif %}
+            </div>
+        </div>
+        <a href="/live-chat/{{ req.user_id|urlencode }}" class="btn btn-primary btn-sm">
+            <i class="bi bi-headset"></i> כנס לשיחה
+        </a>
+    </div>
+    {% endif %}
+    {% endfor %}
+</div>
+{% endif %}
+
+<div class="conversation-layout animate-slide-up">
+    <!-- User List -->
+    <div class="card">
+        <div class="card-header">
+            <span class="fw-semibold">משתמשים</span>
+        </div>
+        <div class="user-list">
+            <div class="list-group">
+                <a href="/conversations"
+                   class="list-group-item {% if not selected_user %}active{% endif %}">
+                    <div class="d-flex justify-between align-center">
+                        <span><i class="bi bi-chat-dots"></i> כל ההודעות</span>
+                    </div>
+                </a>
+                {% for user in users %}
+                <a href="/conversations?user_id={{ user.user_id|urlencode }}"
+                   class="list-group-item {% if selected_user == user.user_id %}active{% endif %}">
+                    <div class="d-flex justify-between align-center">
+                        <span class="fw-semibold">
+                            {% if user.username %}{{ user.username | mask_name }}{% else %}לא ידוע{% endif %}{% set _note_user_id = user.user_id %}{% include "partials/user_note_icon.html" %}
+                            {% if user.user_id in active_live_chats %}
+                            <span class="badge badge-success" style="margin-right: 0.25rem;">חיה</span>
+                            {% endif %}
+                        </span>
+                        <span class="badge badge-info">{{ user.message_count }}</span>
+                    </div>
+                    <span class="text-small text-muted">אחרון: {{ user.last_active|il_datetime }}</span>
+                </a>
+                {% endfor %}
+            </div>
+        </div>
+    </div>
+
+    <!-- Messages -->
+    <div class="card">
+        <div class="card-header">
+            <span class="fw-semibold">
+                {% if selected_user %}
+                הודעות עם משתמש {{ selected_user|mask_name }}
+                {% else %}
+                כל ההודעות האחרונות
+                {% endif %}
+            </span>
+            {% if selected_user %}
+            <div class="d-flex gap-sm align-center">
+                <a href="/live-chat/{{ selected_user|urlencode }}" class="btn btn-primary btn-sm">
+                    <i class="bi bi-headset"></i>
+                    {% if selected_user in active_live_chats %}
+                    חזרה לשיחה חיה
+                    {% else %}
+                    התחל שיחה חיה
+                    {% endif %}
+                </a>
+                {% if selected_user in active_live_chats %}
+                <form method="POST" action="/live-chat/{{ selected_user|urlencode }}/end" style="margin: 0;">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    <button type="submit" class="btn btn-danger btn-sm"
+                            onclick="return confirm('להחזיר את השיחה לבוט?')">
+                        <i class="bi bi-robot"></i> החזר לבוט
+                    </button>
+                </form>
+                {% endif %}
+            </div>
+            {% endif %}
+        </div>
+        <div class="messages-container">
+            {% if messages %}
+            {% for msg in messages %}
+            <div class="message-bubble {% if msg.role == 'user' %}user-msg{% else %}bot-msg{% endif %}">
+                <div class="message-meta">
+                    <span class="sender">
+                        {% if msg.role == 'user' %}
+                        <i class="bi bi-person-circle" style="color: var(--brand-blue);"></i>
+                        {{ (msg.get('username', 'לקוח') if msg.get('username') else 'לקוח')|mask_name }}
+                        {% else %}
+                        <i class="bi bi-robot" style="color: var(--success);"></i> בוט
+                        {% endif %}
+                    </span>
+                    <span class="time">{{ msg.created_at|il_datetime }}</span>
+                </div>
+                <div class="message-content">{{ msg.message|telegram_html(msg.get('channel')) }}</div>
+                {% if msg.sources %}
+                <div class="message-sources">
+                    <i class="bi bi-link-45deg"></i> מקורות: {{ msg.sources }}
+                </div>
+                {% endif %}
+            </div>
+            {% endfor %}
+            {% else %}
+            <div class="empty-state">
+                <i class="bi bi-chat"></i>
+                <p>אין הודעות עדיין.</p>
+            </div>
+            {% endif %}
+        </div>
+    </div>
+</div>
+{% endblock %}
