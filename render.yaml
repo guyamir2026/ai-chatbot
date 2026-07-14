@@ -1,0 +1,63 @@
+services:
+  - type: web
+    name: ai-business-chatbot
+    env: python
+    plan: starter
+
+    # Install deps
+    buildCommand: pip install -r requirements.txt
+
+    # Runs the admin panel (HTTP) and, if configured, the Telegram bot (polling)
+    startCommand: python -m main
+
+    # בדיקת בריאות אמיתית — DB + RAG index
+    healthCheckPath: /health
+
+    # Persist SQLite + FAISS index across deploys/restarts
+    disk:
+      name: chatbot-data
+      mountPath: /var/data
+      sizeGB: 1
+
+    envVars:
+      # Render reads this to choose runtime
+      - key: PYTHON_VERSION
+        value: 3.11.0
+
+      # Persist app data on the mounted disk
+      - key: DATA_DIR
+        value: /var/data
+
+      # Required for RAG/LLM features
+      - key: OPENAI_API_KEY
+        sync: false
+
+      # Optional: enable Telegram bot
+      - key: TELEGRAM_BOT_TOKEN
+        sync: false
+      - key: TELEGRAM_OWNER_CHAT_ID
+        sync: false
+
+      # Admin panel credentials / session secret
+      - key: ADMIN_USERNAME
+        value: admin
+      - key: ADMIN_PASSWORD
+        sync: false
+      - key: ADMIN_SECRET_KEY
+        sync: false
+
+      # Error tracking (Sentry)
+      - key: SENTRY_DSN
+        sync: false
+
+      # Optional branding
+      - key: BUSINESS_NAME
+        value: "AI Business Chatbot"
+
+      # Embed widget — מומלץ להגדיר את הדומיין של האתר השיווקי
+      # כדי למנוע שימוש לרעה ב-OpenAI quota. ריק = פתוח לכולם.
+      - key: WIDGET_ALLOWED_ORIGINS
+        sync: false
+      - key: WIDGET_RATE_LIMIT_PER_HOUR
+        value: "30"
+
