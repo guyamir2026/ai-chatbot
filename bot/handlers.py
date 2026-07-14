@@ -179,8 +179,17 @@ def _get_main_keyboard(update: Update | None = None) -> ReplyKeyboardMarkup:
 
     אם יש update עם user_id שיש לו קוד הפניה — מוסיף כפתור שחזור קוד.
     """
+    # כפתור בקשת תור מוצג רק כשקביעת תורים מופעלת לעסק
+    booking_on = True
+    try:
+        booking_on = db.is_booking_enabled()
+    except Exception:
+        pass  # ברירת מחדל בטוחה — מציגים את הכפתור
+    first_row = [KeyboardButton(BUTTON_PRICE_LIST)]
+    if booking_on:
+        first_row.append(KeyboardButton(BUTTON_BOOKING))
     keyboard = [
-        [KeyboardButton(BUTTON_PRICE_LIST), KeyboardButton(BUTTON_BOOKING)],
+        first_row,
         [KeyboardButton(BUTTON_LOCATION), KeyboardButton(BUTTON_SAVE_CONTACT)],
         [KeyboardButton(BUTTON_AGENT)],
     ]
@@ -1270,6 +1279,17 @@ async def _talk_to_agent_skip_ratelimit(update: Update, context: ContextTypes.DE
 async def _booking_start_core(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """לוגיקה פנימית של התחלת תור — ללא דקורטורים, משמשת את שני הניתובים."""
     user_id, display_name, telegram_username = _get_user_info(update)
+
+    # קביעת תורים כבויה לעסק — לא פותחים flow תורים. מפנים לבעל העסק
+    # (בקשת נציג) ומחזירים END כדי לא להיכנס ל-ConversationHandler.
+    if not db.is_booking_enabled():
+        await _handoff_to_human(
+            update, context,
+            user_id=user_id, display_name=display_name,
+            telegram_username=telegram_username,
+            reason="הלקוח ביקש לקבוע תור, אך העסק אינו מתאם תורים אונליין.",
+        )
+        return ConversationHandler.END
 
     # Log the user's booking attempt even if we handoff to human.
     db.save_message(user_id, display_name, "user", "📅 בקשת תור")

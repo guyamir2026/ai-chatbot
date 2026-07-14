@@ -108,9 +108,15 @@ class TestRegexFullBooking:
     @pytest.mark.parametrize("msg", [
         "רוצה תור", "רוצה לקבוע תור", "אפשר תור?",
         "book an appointment", "I want to book",
+        # פגישה = מילה נרדפת לתור
+        "רוצה פגישה", "לקבוע פגישה", "אפשר לתאם פגישה?",
     ])
     def test_booking_detected(self, msg):
         assert _detect_intent_regex_full(msg) == Intent.APPOINTMENT_BOOKING
+
+    def test_pricing_before_booking_meeting(self):
+        """'כמה עולה פגישה' — מחיר מנצח; קדימות PRICING נשמרת גם עם פגישה."""
+        assert _detect_intent_regex_full("כמה עולה פגישה?") == Intent.PRICING
 
 
 class TestRegexFullCancel:

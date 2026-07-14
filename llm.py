@@ -81,6 +81,7 @@ def _build_messages(
                 follow_up_enabled=FOLLOW_UP_ENABLED,
                 custom_prompt=settings.get("custom_prompt", ""),
                 channel=channel,
+                booking_enabled=bool(settings.get("booking_enabled", 1)),
             )
     except Exception as e:
         # fallback לפרומפט משופר עם ברירות מחדל (ללא תלות ב-DB)

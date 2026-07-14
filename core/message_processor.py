@@ -404,6 +404,13 @@ def process_incoming_message(
     # ── Intent detection ─────────────────────────────────────────────────
     intent = detect_intent_with_llm(text)
 
+    # כשקביעת תורים כבויה לעסק — בקשת תור/פגישה מטופלת כבקשת נציג:
+    # העסק אינו מתאם אונליין, רק מעביר לבעל העסק. מנרמלים את הכוונה כאן,
+    # לפני בלוקי הדיספאטץ', כדי לעבור דרך צינור ה-HUMAN_AGENT הקיים
+    # (יצירת בקשת נציג + התראה לבעלים) במקום לפתוח flow של קביעת תור.
+    if intent == Intent.APPOINTMENT_BOOKING and not db.is_booking_enabled():
+        intent = Intent.HUMAN_AGENT
+
     # איפוס fallbacks לכוונות שלא עוברות RAG
     if intent not in (Intent.GENERAL, Intent.PRICING, Intent.LOCATION):
         consecutive_fallbacks = 0

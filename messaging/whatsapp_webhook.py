@@ -642,20 +642,23 @@ def _whatsapp_webhook_impl():
                 db.save_message(from_number, profile_name or from_number, "assistant", reschedule_response, channel="whatsapp")
             return "", 200
 
-        # בדיקת booking flow פתוח — אם יש state, ממשיכים את ה-flow
-        # חשוב: לפני תרגום מספרי תפריט, כדי לא לדרוס בחירת שירות ממוספרת
-        from messaging.whatsapp_booking import handle_booking_step
-        # ב-booking flow, interactive_id מקבל עדיפות (למשל list_id של שירות שנבחר)
-        booking_input = interactive_id or body
-        booking_response = handle_booking_step(from_number, booking_input)
-        if booking_response is not None:
-            db.save_message(from_number, profile_name or from_number, "user", button_text or body, channel="whatsapp")
-            if booking_response:  # מחרוזת לא ריקה = טקסט לשליחה
-                _send_whatsapp_response(from_number, booking_response)
-            else:
-                # מחרוזת ריקה = כבר נשלח אינטראקטיבית — שומרים placeholder בהיסטוריה
-                db.save_message(from_number, profile_name or from_number, "assistant", "[הודעה אינטראקטיבית נשלחה]", channel="whatsapp")
-            return "", 200
+        # בדיקת booking flow פתוח — אם יש state, ממשיכים את ה-flow.
+        # חשוב: לפני תרגום מספרי תפריט, כדי לא לדרוס בחירת שירות ממוספרת.
+        # מדלגים כשקביעת תורים כבויה — לא ממשיכים flow שנפתח לפני הכיבוי
+        # (אם יודלק שוב, ה-state עדיין תקף וימשיך כרגיל).
+        if db.is_booking_enabled():
+            from messaging.whatsapp_booking import handle_booking_step
+            # ב-booking flow, interactive_id מקבל עדיפות (למשל list_id של שירות שנבחר)
+            booking_input = interactive_id or body
+            booking_response = handle_booking_step(from_number, booking_input)
+            if booking_response is not None:
+                db.save_message(from_number, profile_name or from_number, "user", button_text or body, channel="whatsapp")
+                if booking_response:  # מחרוזת לא ריקה = טקסט לשליחה
+                    _send_whatsapp_response(from_number, booking_response)
+                else:
+                    # מחרוזת ריקה = כבר נשלח אינטראקטיבית — שומרים placeholder בהיסטוריה
+                    db.save_message(from_number, profile_name or from_number, "assistant", "[הודעה אינטראקטיבית נשלחה]", channel="whatsapp")
+                return "", 200
 
         # תרגום לחיצת כפתור / מספרי תפריט לטקסט מתאים
         if interactive_id and interactive_id in _INTERACTIVE_MAP:
@@ -865,17 +868,19 @@ def _send_welcome_message(to_number: str) -> None:
     Quick Reply ב-session מוגבל ל-3 כפתורים — מציגים את השלושה הפופולריים.
     """
     returning = db.is_returning_customer(to_number)
+    booking_on = db.is_booking_enabled()
     if returning:
         body = (
             f"😊 שמחים לראות אותך שוב ב-{get_business_config().name}!\n"
             "איך אפשר לעזור הפעם?"
         )
     else:
+        booking_line = "• בקשת תורים\n" if booking_on else ""
         body = (
             f"👋 ברוכים הבאים ל-{get_business_config().name}!\n\n"
             "אני העוזר הווירטואלי שלכם. אני יכול לעזור עם:\n"
             "• מידע על השירותים והמחירים\n"
-            "• בקשת תורים\n"
+            f"{booking_line}"
             "• מענה על שאלות\n"
             "• חיבור לבעל העסק\n\n"
             "אפשר לכתוב כל שאלה, או לבחור:"
@@ -885,16 +890,28 @@ def _send_welcome_message(to_number: str) -> None:
     try:
         from messaging.whatsapp_templates import ensure_quick_reply, send_with_template
 
-        # friendly_name שונה ללקוח חוזר/חדש — כי ה-body שונה וה-template נקאש
-        template_name = "welcome_menu_returning" if returning else "welcome_menu_new"
-        content_sid = ensure_quick_reply(
-            friendly_name=template_name,
-            body=body,
-            buttons=[
+        # friendly_name שונה ללקוח חוזר/חדש — כי ה-body שונה וה-template נקאש.
+        # כשקביעת תורים כבויה — כפתור התור מוחלף במיקום, ומפתח ה-cache שונה
+        # (_nobook) כדי לא לשרת template מקאש עם כפתור התור.
+        base_name = "welcome_menu_returning" if returning else "welcome_menu_new"
+        if booking_on:
+            template_name = base_name
+            buttons = [
                 ("📋 מחירון", "menu_price"),
                 ("📅 בקשת תור", "menu_booking"),
                 ("👤 דברו עם נציג", "menu_agent"),
-            ],
+            ]
+        else:
+            template_name = base_name + "_nobook"
+            buttons = [
+                ("📋 מחירון", "menu_price"),
+                ("📍 מיקום העסק", "menu_location"),
+                ("👤 דברו עם נציג", "menu_agent"),
+            ]
+        content_sid = ensure_quick_reply(
+            friendly_name=template_name,
+            body=body,
+            buttons=buttons,
         )
         send_with_template(to_number, content_sid)
         return

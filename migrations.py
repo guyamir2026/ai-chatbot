@@ -159,6 +159,11 @@ def run_migrations(conn) -> None:
     _ensure_column(conn, "bot_settings", "referral_discount", "REAL DEFAULT 10.0")
     _ensure_column(conn, "bot_settings", "referral_validity_days", "INTEGER DEFAULT 60")
 
+    # ─── bot_settings: הפעלה/כיבוי קביעת תורים פר-עסק ────────────────────
+    # ברירת מחדל 1 = פעיל (תאימות לאחור). כבוי = העסק לא מתאם תורים
+    # אונליין; בקשות תור/פגישה מופנות לנציג, והכפתור/ה-flow מוסתרים.
+    _ensure_column(conn, "bot_settings", "booking_enabled", "INTEGER DEFAULT 1")
+
     # ─── bot_settings: פרומפט מערכת מלא (override) ─────────────────────────
     _ensure_column(conn, "bot_settings", "full_system_prompt", "TEXT DEFAULT ''")
 

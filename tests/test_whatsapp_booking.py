@@ -117,6 +117,17 @@ class TestStartBooking:
             result = booking.start_booking("+972501234567")
         assert "אין שירותים" in result
 
+    def test_start_booking_disabled_routes_to_agent(self, booking, db):
+        """קביעת תורים כבויה — start_booking לא פותח flow, מפנה לנציג."""
+        db.add_service("תספורת", 30)  # יש שירות — לא רלוונטי כשכבוי
+        s = db.get_bot_settings()
+        db.update_bot_settings(
+            s["tone"], s.get("custom_phrases", ""), booking_enabled=False,
+        )
+        result = booking.start_booking("+972501234567")
+        assert "נציג" in result
+        assert "תספורת" not in result  # לא הציג רשימת שירותים
+
 
 # ── Full Booking Flow Tests ──────────────────────────────────────────────────
 

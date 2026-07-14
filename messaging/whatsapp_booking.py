@@ -266,6 +266,13 @@ def start_booking(user_id: str) -> str:
 
     נקרא כש-message_processor מזהה intent=APPOINTMENT_BOOKING.
     """
+    # קביעת תורים כבויה — הגנת עומק (המסלול הרגיל כבר מנותב ל-HUMAN_AGENT
+    # ב-message_processor). לא פותחים flow; מכוונים לבקשת נציג.
+    if not db.is_booking_enabled():
+        return (
+            "כרגע לא ניתן לקבוע תור אונליין דרך הצ'אט. "
+            "כתבו *נציג* ואעביר את פנייתכם ישירות לבעל העסק. 🙏"
+        )
     # שליפת שירותים פעילים מ-DB
     services = db.get_all_services(active_only=True)
     if not services:

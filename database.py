@@ -4108,10 +4108,21 @@ def get_bot_settings() -> dict:
                 "second_reminder_hours": 2.0,
                 "referral_enabled": 0, "referral_discount": 10.0,
                 "referral_validity_days": 60, "ics_enabled": 1,
+                "booking_enabled": 1,
                 "auto_booking_mode": "manual",
                 "auto_booking_max_days_ahead": 90,
                 "auto_booking_buffer_after_event_minutes": 0,
                 "updated_at": ""}
+
+
+def is_booking_enabled() -> bool:
+    """בדיקה אם קביעת תורים אונליין מופעלת לעסק (ברירת מחדל: פעיל).
+
+    כבוי = העסק לא מתאם תורים אונליין; בקשות תור/פגישה מופנות לנציג,
+    והכפתור/ה-flow מוסתרים. מקביל ל-referral_service.is_referral_enabled —
+    נקרא בזמן-ריצה בכל נקודות ה-gating (tenant context כבר קבוע).
+    """
+    return bool(get_bot_settings().get("booking_enabled", 1))
 
 
 VALID_AUTO_BOOKING_MODES = {"manual", "auto_with_check", "auto_always"}
@@ -4143,6 +4154,7 @@ def update_bot_settings(
     referral_discount: float | None = None,
     referral_validity_days: int | None = None,
     ics_enabled: bool | None = None,
+    booking_enabled: bool | None = None,
     auto_booking_mode: str | None = None,
     auto_booking_max_days_ahead: int | None = None,
     auto_booking_buffer_after_event_minutes: int | None = None,
@@ -4175,6 +4187,7 @@ def update_bot_settings(
                    referral_discount = COALESCE(?, referral_discount),
                    referral_validity_days = COALESCE(?, referral_validity_days),
                    ics_enabled = COALESCE(?, ics_enabled),
+                   booking_enabled = COALESCE(?, booking_enabled),
                    auto_booking_mode = COALESCE(?, auto_booking_mode),
                    auto_booking_max_days_ahead = COALESCE(?, auto_booking_max_days_ahead),
                    auto_booking_buffer_after_event_minutes = COALESCE(?, auto_booking_buffer_after_event_minutes),
@@ -4190,6 +4203,7 @@ def update_bot_settings(
              referral_discount,
              referral_validity_days,
              int(ics_enabled) if ics_enabled is not None else None,
+             int(booking_enabled) if booking_enabled is not None else None,
              auto_booking_mode,
              auto_booking_max_days_ahead,
              int(auto_booking_buffer_after_event_minutes) if auto_booking_buffer_after_event_minutes is not None else None),

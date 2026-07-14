@@ -2580,6 +2580,20 @@ self.addEventListener('notificationclick', (event) => {
                 )
                 _audit_log("appointments", f"ics_enabled={ics_enabled}")
                 flash("הגדרות קובץ יומן עודכנו בהצלחה!", "success")
+            elif form_type == "booking_settings":
+                # טופס הפעלה/כיבוי קביעת תורים אונליין פר-עסק
+                booking_enabled = bool(request.form.get("booking_enabled"))
+                current = db.get_bot_settings()
+                db.update_bot_settings(
+                    current["tone"], current.get("custom_phrases", ""),
+                    booking_enabled=booking_enabled,
+                )
+                _audit_log("appointments", f"booking_enabled={booking_enabled}")
+                flash(
+                    "העסק מקבל תורים אונליין." if booking_enabled
+                    else "קביעת תורים אונליין כובתה — בקשות תור/פגישה יופנו לבעל העסק.",
+                    "success",
+                )
             elif form_type == "auto_booking":
                 # טופס אישור תורים אוטומטי — manual / auto_with_check / auto_always
                 mode = request.form.get("auto_booking_mode", "manual").strip()
