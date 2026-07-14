@@ -1,0 +1,180 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="page-header animate-fade-in">
+    <h1><i class="bi bi-qr-code"></i> QR Code לבוט</h1>
+</div>
+
+{% if not bot_username and not whatsapp_number %}
+<div class="card animate-slide-up stagger-1">
+    <div class="card-body">
+        <div class="empty-state">
+            <i class="bi bi-exclamation-triangle" style="color: var(--warning);"></i>
+            <p>לא הוגדר אף ערוץ.</p>
+            <p class="text-small text-muted">
+                יש להגדיר <code>TELEGRAM_BOT_USERNAME</code> או <code>TWILIO_WHATSAPP_NUMBER</code>
+                בפאנל → <a href="{{ url_for('bot_config') }}">הגדרות תשתית</a>.
+            </p>
+        </div>
+    </div>
+</div>
+{% else %}
+<div class="content-two-col">
+    <!-- תצוגה מקדימה של ה-QR Code -->
+    <div class="card animate-slide-up stagger-1">
+        <div class="card-header">
+            <span><i class="bi bi-eye"></i> תצוגה מקדימה</span>
+        </div>
+        <div class="card-body" style="text-align: center;">
+            {% if bot_username and whatsapp_number %}
+            <!-- בחירת ערוץ — רק כששני הערוצים מוגדרים -->
+            <div class="form-group" style="display: flex; gap: var(--space-sm); justify-content: center; margin-bottom: var(--space-md);">
+                <label style="display: flex; align-items: center; gap: var(--space-xs); cursor: pointer;">
+                    <input type="radio" name="channel" value="telegram" checked
+                           id="channel-telegram"
+                           onchange="updateChannel('telegram')">
+                    <i class="bi bi-telegram"></i> Telegram
+                </label>
+                <label style="display: flex; align-items: center; gap: var(--space-xs); cursor: pointer;">
+                    <input type="radio" name="channel" value="whatsapp"
+                           id="channel-whatsapp"
+                           onchange="updateChannel('whatsapp')">
+                    <i class="bi bi-whatsapp"></i> WhatsApp
+                </label>
+            </div>
+            {% endif %}
+
+            <p class="text-muted text-small" style="margin-bottom: var(--space-sm);">
+                סרקו את הקוד כדי להתחיל שיחה עם הבוט
+            </p>
+            <div style="margin-bottom: var(--space-sm);">
+                <img id="qr-preview" src="/qr-code/preview?channel={% if bot_username %}telegram{% else %}whatsapp{% endif %}" alt="QR Code"
+                     style="max-width: 280px; width: 100%; image-rendering: pixelated; border-radius: var(--radius-md);">
+            </div>
+            <p class="text-small text-muted">
+                <a id="qr-link-telegram" href="https://t.me/{{ bot_username }}" target="_blank" rel="noopener"
+                   style="display: {% if bot_username %}inline{% else %}none{% endif %};">
+                    t.me/{{ bot_username }}
+                </a>
+                <a id="qr-link-whatsapp" href="https://wa.me/{{ whatsapp_digits }}" target="_blank" rel="noopener"
+                   style="display: {% if whatsapp_digits and not bot_username %}inline{% else %}none{% endif %};">
+                    wa.me/{{ whatsapp_digits }}
+                </a>
+            </p>
+        </div>
+    </div>
+
+    <!-- הגדרות הורדה -->
+    <div class="card animate-slide-up stagger-2">
+        <div class="card-header">
+            <span><i class="bi bi-download"></i> הורדה</span>
+        </div>
+        <div class="card-body">
+            <form id="qr-download-form" method="GET" action="/qr-code/download">
+                <input type="hidden" name="channel" id="download-channel"
+                       value="{% if bot_username %}telegram{% else %}whatsapp{% endif %}">
+                <div class="form-group">
+                    <label for="color">צבע ה-QR Code</label>
+                    <div class="d-flex align-center gap-sm">
+                        <input type="color" id="color" name="color" value="#000000"
+                               style="width: 50px; height: 36px; border: 1px solid var(--border); border-radius: var(--radius-sm); cursor: pointer;">
+                        <span id="color-label" class="text-small text-muted">#000000</span>
+                    </div>
+                </div>
+
+                <div class="form-group">
+                    <label for="scale">גודל (scale)</label>
+                    <select id="scale" name="scale" class="form-control">
+                        <option value="5">קטן (5x)</option>
+                        <option value="10">בינוני (10x)</option>
+                        <option value="20" selected>גדול (20x) — מומלץ</option>
+                        <option value="30">גדול מאוד (30x)</option>
+                    </select>
+                </div>
+
+                <div class="form-group">
+                    <label style="display: flex; align-items: center; gap: var(--space-xs); cursor: {% if has_logo %}pointer{% else %}not-allowed{% endif %};">
+                        <input type="checkbox"
+                               id="with_logo"
+                               name="with_logo"
+                               value="1"
+                               {% if not has_logo %}disabled{% endif %}>
+                        <span>כלול לוגו עסקי במרכז</span>
+                    </label>
+                    {% if not has_logo %}
+                    <small class="text-muted">
+                        לא הוגדר לוגו עסקי.
+                        <a href="{{ url_for('branding') }}">העלה לוגו</a>
+                        כדי להפעיל אפשרות זו.
+                    </small>
+                    {% endif %}
+                </div>
+
+                <button type="submit" class="btn btn-primary" style="width: 100%;">
+                    <i class="bi bi-download"></i> הורד PNG
+                </button>
+            </form>
+
+            <hr style="margin: var(--space-sm) 0; border-color: var(--border);">
+
+            <div>
+                <h4 style="font-size: 0.9rem; margin-bottom: var(--space-xs);">שימושים מוצעים</h4>
+                <ul class="text-small text-muted" style="padding-right: 1.2rem; margin: 0;">
+                    <li>מדבקה ליד הקופה או בכניסה</li>
+                    <li>כרטיס ביקור</li>
+                    <li>חתימת מייל</li>
+                    <li>סטוריז באינסטגרם / פוסטים בפייסבוק</li>
+                </ul>
+            </div>
+        </div>
+    </div>
+</div>
+{% endif %}
+{% endblock %}
+
+{% block scripts %}
+<script>
+    // הערוץ הנוכחי שנבחר
+    var currentChannel = document.getElementById('download-channel') ?
+                         document.getElementById('download-channel').value : 'telegram';
+
+    function refreshPreview() {
+        var color = document.getElementById('color').value;
+        var qrPreview = document.getElementById('qr-preview');
+        var withLogoEl = document.getElementById('with_logo');
+        var withLogo = withLogoEl && withLogoEl.checked && !withLogoEl.disabled;
+        var url = '/qr-code/preview?channel=' + encodeURIComponent(currentChannel) +
+                  '&color=' + encodeURIComponent(color);
+        if (withLogo) url += '&with_logo=1';
+        qrPreview.src = url;
+    }
+
+    function updateChannel(channel) {
+        currentChannel = channel;
+        document.getElementById('download-channel').value = channel;
+        // הצגת הלינק המתאים מתחת ל-QR
+        var tg = document.getElementById('qr-link-telegram');
+        var wa = document.getElementById('qr-link-whatsapp');
+        if (tg) tg.style.display = (channel === 'telegram') ? 'inline' : 'none';
+        if (wa) wa.style.display = (channel === 'whatsapp') ? 'inline' : 'none';
+        refreshPreview();
+    }
+
+    // עדכון תצוגה מקדימה בשינוי צבע
+    var colorInput = document.getElementById('color');
+    var colorLabel = document.getElementById('color-label');
+
+    if (colorInput) {
+        colorInput.addEventListener('input', function() {
+            colorLabel.textContent = this.value;
+            refreshPreview();
+        });
+    }
+
+    // עדכון תצוגה מקדימה כשמסמנים/מבטלים את "כלול לוגו"
+    var withLogoCheckbox = document.getElementById('with_logo');
+    if (withLogoCheckbox && !withLogoCheckbox.disabled) {
+        withLogoCheckbox.addEventListener('change', refreshPreview);
+    }
+</script>
+{% endblock %}
