@@ -1,0 +1,81 @@
+<tr id="request-row-{{ req.id }}">
+    <td data-label="מזהה">{{ req.id }}</td>
+    <td data-label="לקוח">
+        <div>
+            <span class="fw-semibold" style="color: var(--text-primary);">{{ req.username|mask_name }}</span>{% set _note_user_id = req.user_id %}{% include "partials/user_note_icon.html" %}
+            {% if req.get('channel') == 'widget' %}
+            <span class="badge badge-warning" style="font-size: 0.65rem; vertical-align: middle;" title="מהאתר (Widget)"><i class="bi bi-globe"></i> מהאתר</span>
+            {% elif req.get('channel') == 'whatsapp' %}
+            <span class="badge badge-success" style="font-size: 0.65rem; vertical-align: middle;" title="WhatsApp"><i class="bi bi-whatsapp"></i></span>
+            {% elif req.get('channel') == 'meta_ig' %}
+            <span class="badge" style="font-size: 0.65rem; vertical-align: middle; background:#E1306C; color:#fff;" title="Instagram"><i class="bi bi-instagram"></i></span>
+            {% elif req.get('channel') == 'meta_msg' %}
+            <span class="badge" style="font-size: 0.65rem; vertical-align: middle; background:#0084FF; color:#fff;" title="Messenger"><i class="bi bi-messenger"></i></span>
+            {% else %}
+            <span class="badge badge-info" style="font-size: 0.65rem; vertical-align: middle;" title="Telegram"><i class="bi bi-telegram"></i></span>
+            {% endif %}
+            {% if req.telegram_username %}
+            <br>
+            <a class="text-small" href="{% if is_demo_session %}#{% else %}https://t.me/{{ req.telegram_username }}{% endif %}" target="_blank" rel="noopener">
+                @{{ req.telegram_username | mask_username }}
+            </a>
+            {% elif req.get('channel') == 'widget' %}
+            <br><span class="text-small text-muted">מבקר אתר אנונימי</span>
+            {% elif req.get('channel') in ('meta_ig', 'meta_msg') %}
+            {# מטא: אין username עד שמיישמים User Profile API #}
+            {% elif req.get('channel') != 'whatsapp' %}
+            <br><span class="text-small text-muted">ללא שם משתמש בטלגרם</span>
+            {% endif %}
+        </div>
+    </td>
+    <td data-label="הודעה">{{ req.message }}</td>
+    <td data-label="סטטוס" data-sort-value="{{ req.status }}">
+        {% if req.status == 'pending' and active_live_chats is defined and req.user_id in active_live_chats %}
+        <span class="badge badge-success">בשיחה חיה</span>
+        {% elif req.status == 'pending' %}
+        <span class="badge badge-warning">ממתין</span>
+        {% elif req.status == 'handled' %}
+        <span class="badge badge-success">טופל</span>
+        {% elif req.status == 'dismissed' %}
+        <span class="badge badge-muted">נדחה</span>
+        {% else %}
+        <span class="badge badge-muted">{{ req.status }}</span>
+        {% endif %}
+    </td>
+    <td data-label="ת. פנייה" class="text-small text-muted" title="{{ req.created_at|il_datetime }}" data-sort-value="{{ req.created_at }}">{{ req.created_at|relative_time }}</td>
+    <td data-label="ת. טיפול">
+        {% if req.status == 'pending' and active_live_chats is defined and req.user_id in active_live_chats %}
+        <div class="actions-cell">
+            <a href="/live-chat/{{ req.user_id|urlencode }}" class="btn btn-primary btn-sm">
+                <i class="bi bi-headset"></i> חזרה לשיחה חיה
+            </a>
+        </div>
+        {% elif req.status == 'pending' %}
+        <div class="actions-cell">
+            {% if req.get('channel') != 'widget' %}
+            {# ב-widget אין session של טלגרם/וואטסאפ — אי אפשר להיכנס ל-live
+               chat, בעל העסק חוזר טלפונית לפי המספר ב-message. #}
+            <a href="/live-chat/{{ req.user_id|urlencode }}" class="btn btn-primary btn-sm">
+                <i class="bi bi-headset"></i> כנס לשיחה
+            </a>
+            {% endif %}
+            <button class="btn btn-success btn-sm"
+                    hx-post="/requests/{{ req.id }}/handle"
+                    hx-vals='{"status": "handled"}'
+                    hx-target="#request-row-{{ req.id }}"
+                    hx-swap="outerHTML swap:0.2s">
+                <i class="bi bi-check-lg"></i> סמן כטופל
+            </button>
+            <button class="btn btn-secondary btn-sm"
+                    hx-post="/requests/{{ req.id }}/handle"
+                    hx-vals='{"status": "dismissed"}'
+                    hx-target="#request-row-{{ req.id }}"
+                    hx-swap="outerHTML swap:0.2s">
+                <i class="bi bi-x-lg"></i> דחה
+            </button>
+        </div>
+        {% elif req.handled_at %}
+        <span class="text-small text-muted">{{ req.handled_at|il_datetime }}</span>
+        {% endif %}
+    </td>
+</tr>
