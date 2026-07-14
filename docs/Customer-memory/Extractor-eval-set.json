@@ -1,0 +1,710 @@
+{
+  "meta": {
+    "version": "1.0",
+    "description": "Eval set ל-Fact Extractor של מערכת הזיכרון המתמשך",
+    "language": "he",
+    "total_cases": 30,
+    "categories": {
+      "no_extraction": 10,
+      "clear_extraction": 8,
+      "confirm_supersede": 5,
+      "pii_sensitive": 4,
+      "edge_cases": 3
+    }
+  },
+
+  "business_profiles": {
+    "salon_tlv": {
+      "business_type": "מספרה",
+      "business_name": "סטודיו לירון",
+      "what_matters_for_extraction": "סוג שיער, אורך מועדף, צבע נוכחי, אלרגיות למוצרים, אם הלקוחה מגיעה עם הילדים, חרדה ממספריים, ספרית מועדפת",
+      "services": [
+        {"name": "תספורת נשים", "aliases": ["תספורת"], "category": "תספורות"},
+        {"name": "צבע מלא", "aliases": ["צבע"], "category": "צביעה"},
+        {"name": "גוונים", "aliases": ["היילייטס", "פסים"], "category": "צביעה"},
+        {"name": "החלקה יפנית", "aliases": ["החלקה"], "category": "טיפולים"},
+        {"name": "בוטוקס לשיער", "aliases": ["בוטוקס"], "category": "טיפולים"},
+        {"name": "תספורת גברים", "aliases": [], "category": "תספורות"},
+        {"name": "תספורת ילדים", "aliases": [], "category": "תספורות"}
+      ]
+    },
+    "clinic_rg": {
+      "business_type": "קליניקת אסתטיקה",
+      "business_name": "קליניקת גלאם",
+      "what_matters_for_extraction": "סוג עור, רגישויות, טיפולים שניסתה בעבר, אזורי טיפול, הריון, תרופות, אילו מטפלות העדיפה",
+      "services": [
+        {"name": "מניקור ג'ל", "aliases": ["מניקור", "ג'ל"], "category": "ציפורניים"},
+        {"name": "פדיקור רפואי", "aliases": ["פדיקור"], "category": "רגליים"},
+        {"name": "הסרת שיער בלייזר רגליים", "aliases": ["לייזר רגליים"], "category": "לייזר"},
+        {"name": "הסרת שיער בלייזר בית שחי", "aliases": ["לייזר בית שחי"], "category": "לייזר"},
+        {"name": "טיפול פנים אנטי אייג'ינג", "aliases": ["טיפול אנטי אייג'ינג", "טיפול פנים"], "category": "פנים"},
+        {"name": "ניקוי פנים עמוק", "aliases": ["ניקוי פנים"], "category": "פנים"},
+        {"name": "עיסוי שוודי", "aliases": ["עיסוי"], "category": "עיסויים"}
+      ]
+    },
+    "online_shop": {
+      "business_type": "חנות אונליין לבגדי נשים",
+      "business_name": "בוטיק נועה",
+      "what_matters_for_extraction": "מידות, סגנון מועדף, צבעים אהובים, אירועים קרובים, העדפת משלוח/איסוף, החזרות קודמות",
+      "services": [
+        {"name": "שמלות ערב", "aliases": ["שמלה לערב"], "category": "שמלות"},
+        {"name": "שמלות יום יום", "aliases": ["שמלה יומיומית"], "category": "שמלות"},
+        {"name": "חולצות", "aliases": ["טופ", "טופים"], "category": "טופים"},
+        {"name": "מכנסיים", "aliases": ["ג'ינס"], "category": "תחתונים"},
+        {"name": "אביזרים", "aliases": ["תיק", "תכשיט"], "category": "אביזרים"}
+      ]
+    },
+    "consultant": {
+      "business_type": "יועצת תזונה",
+      "business_name": "מירב כהן - תזונה",
+      "what_matters_for_extraction": "מטרות תזונה, אלרגיות, רגישויות, הגבלות דתיות, רקע רפואי, פעילות גופנית, מטופלים אחרים בבית",
+      "services": [
+        {"name": "פגישת אבחון ראשונה", "aliases": ["פגישה ראשונה", "אבחון"], "category": "פגישות"},
+        {"name": "פגישת מעקב", "aliases": ["מעקב"], "category": "פגישות"},
+        {"name": "תכנית אישית", "aliases": ["תפריט"], "category": "תכניות"}
+      ]
+    }
+  },
+
+  "cases": [
+    {
+      "id": "no_extract_01",
+      "category": "no_extraction",
+      "description": "שאלת מידע גנרית - שעות פתיחה",
+      "business_id": "salon_tlv",
+      "existing_facts": [],
+      "conversation": [
+        {"role": "user", "content": "היי, מה שעות הפתיחה שלכם?"},
+        {"role": "assistant", "content": "שלום! אנחנו פתוחים א'-ה' 9:00-20:00, ו' 9:00-14:00."},
+        {"role": "user", "content": "תודה!"}
+      ],
+      "expected": {
+        "extractions": [],
+        "min_skipped_count": 0
+      }
+    },
+    {
+      "id": "no_extract_02",
+      "category": "no_extraction",
+      "description": "בקשת תיאום תור בודד בלי העדפה",
+      "business_id": "salon_tlv",
+      "existing_facts": [],
+      "conversation": [
+        {"role": "user", "content": "אני רוצה לקבוע תור לתספורת"},
+        {"role": "assistant", "content": "בשמחה! יש לי זמינות מחר ב-11:00 או 14:00, מה מתאים?"},
+        {"role": "user", "content": "14:00 מתאים"},
+        {"role": "assistant", "content": "נרשם! נתראה מחר ב-14:00."}
+      ],
+      "expected": {
+        "extractions": [],
+        "min_skipped_count": 0
+      }
+    },
+    {
+      "id": "no_extract_03",
+      "category": "no_extraction",
+      "description": "תלונה רגעית - כאב ראש",
+      "business_id": "clinic_rg",
+      "existing_facts": [],
+      "conversation": [
+        {"role": "user", "content": "אני לא יכולה להגיע היום, יש לי כאב ראש נוראי"},
+        {"role": "assistant", "content": "מצטערים לשמוע, רוצה לדחות לזמן אחר?"},
+        {"role": "user", "content": "כן בבקשה, נדבר מחר"}
+      ],
+      "expected": {
+        "extractions": [],
+        "min_skipped_count": 1
+      }
+    },
+    {
+      "id": "no_extract_04",
+      "category": "no_extraction",
+      "description": "small talk בלי תוכן שימושי",
+      "business_id": "online_shop",
+      "existing_facts": [],
+      "conversation": [
+        {"role": "user", "content": "תודה רבה על השירות שלכם, ממש נחמד"},
+        {"role": "assistant", "content": "תודה לך! אנחנו תמיד כאן."},
+        {"role": "user", "content": "מאחלת שבוע טוב"}
+      ],
+      "expected": {
+        "extractions": [],
+        "min_skipped_count": 0
+      }
+    },
+    {
+      "id": "no_extract_05",
+      "category": "no_extraction",
+      "description": "אמירה על צד שלישי לא הלקוחה עצמה",
+      "business_id": "salon_tlv",
+      "existing_facts": [],
+      "conversation": [
+        {"role": "user", "content": "אחותי שלחה אותי אליכם, היא תמיד מספרת על המקום"},
+        {"role": "assistant", "content": "תודה לאחותך! נשמח לראותך, מה תרצי לקבוע?"},
+        {"role": "user", "content": "תספורת בבקשה"}
+      ],
+      "expected": {
+        "extractions": [],
+        "min_skipped_count": 1
+      }
+    },
+    {
+      "id": "no_extract_06",
+      "category": "no_extraction",
+      "description": "ספקולציה של הלקוח עצמו",
+      "business_id": "consultant",
+      "existing_facts": [],
+      "conversation": [
+        {"role": "user", "content": "אני חושב שאולי אני רגיש למשהו, לא בטוח"},
+        {"role": "assistant", "content": "כדאי שנבדוק את זה בפגישה, רוצה לקבוע?"},
+        {"role": "user", "content": "אולי בעתיד, אני אחשוב"}
+      ],
+      "expected": {
+        "extractions": [],
+        "min_skipped_count": 1
+      }
+    },
+    {
+      "id": "no_extract_07",
+      "category": "no_extraction",
+      "description": "הזמנה ספציפית בלי דפוס",
+      "business_id": "online_shop",
+      "existing_facts": [],
+      "conversation": [
+        {"role": "user", "content": "אני רוצה להזמין את השמלה השחורה במידה M"},
+        {"role": "assistant", "content": "מעולה, מאשרת. משלוח לאיזה כתובת?"},
+        {"role": "user", "content": "אשלח לך את הכתובת בהודעה הבאה"}
+      ],
+      "expected": {
+        "extractions": [],
+        "min_skipped_count": 0
+      }
+    },
+    {
+      "id": "no_extract_08",
+      "category": "no_extraction",
+      "description": "כוונה זמנית שלא יציבה",
+      "business_id": "consultant",
+      "existing_facts": [],
+      "conversation": [
+        {"role": "user", "content": "אולי בשבוע הבא אני אנסה להפסיק לאכול גלוטן"},
+        {"role": "assistant", "content": "כדאי שנדבר על זה בפגישה לפני שמתחילים שינוי תזונתי גדול"},
+        {"role": "user", "content": "אוקיי בסדר"}
+      ],
+      "expected": {
+        "extractions": [],
+        "min_skipped_count": 1
+      }
+    },
+    {
+      "id": "no_extract_09",
+      "category": "no_extraction",
+      "description": "שאלה על מבצע",
+      "business_id": "salon_tlv",
+      "existing_facts": [],
+      "conversation": [
+        {"role": "user", "content": "יש לכם מבצעים החודש?"},
+        {"role": "assistant", "content": "כן! יש לנו 15% הנחה על החלקה יפנית"},
+        {"role": "user", "content": "נחמד, אחשוב על זה"}
+      ],
+      "expected": {
+        "extractions": [],
+        "min_skipped_count": 0
+      }
+    },
+    {
+      "id": "no_extract_10",
+      "category": "no_extraction",
+      "description": "תיאור רגש רגעי",
+      "business_id": "clinic_rg",
+      "existing_facts": [],
+      "conversation": [
+        {"role": "user", "content": "אני קצת לחוצה לקראת הטיפול מחר"},
+        {"role": "assistant", "content": "זה לגמרי טבעי. המטפלת תסביר הכל בהתחלה."},
+        {"role": "user", "content": "תודה, זה מרגיע"}
+      ],
+      "expected": {
+        "extractions": [],
+        "min_skipped_count": 1
+      }
+    },
+
+    {
+      "id": "extract_01",
+      "category": "clear_extraction",
+      "description": "העדפת זמן יציבה",
+      "business_id": "salon_tlv",
+      "existing_facts": [],
+      "conversation": [
+        {"role": "user", "content": "אני רוצה לקבוע תור, אבל תמיד הכי טוב לי בבוקר. אחרי 15:00 אני בעבודה"},
+        {"role": "assistant", "content": "אין בעיה, יש לי זמינות מחר ב-10:00, מתאים?"},
+        {"role": "user", "content": "מעולה, נקבע ל-10:00"}
+      ],
+      "expected": {
+        "extractions": [
+          {
+            "action": "add",
+            "fact_type": "preference",
+            "content_semantic": "מעדיפה תורים בבוקר, לא זמינה אחרי 15:00",
+            "requires_consent": false,
+            "confidence_bucket": "0.85-0.94"
+          }
+        ]
+      }
+    },
+    {
+      "id": "extract_02",
+      "category": "clear_extraction",
+      "description": "מידע אישי שימושי - טבעונות",
+      "business_id": "consultant",
+      "existing_facts": [],
+      "conversation": [
+        {"role": "user", "content": "חשוב לי להגיד מראש שאני טבעונית"},
+        {"role": "assistant", "content": "תודה שעדכנת, אקח את זה בחשבון בתכנית"},
+        {"role": "user", "content": "כן זה חשוב לי מאוד, ככה אני 5 שנים"}
+      ],
+      "expected": {
+        "extractions": [
+          {
+            "action": "add",
+            "fact_type": "personal_info",
+            "content_semantic": "טבעונית כבר 5 שנים",
+            "requires_consent": false,
+            "confidence_bucket": "0.85-0.94"
+          }
+        ]
+      }
+    },
+    {
+      "id": "extract_03",
+      "category": "clear_extraction",
+      "description": "Open issue - החזר ממתין",
+      "business_id": "online_shop",
+      "existing_facts": [],
+      "conversation": [
+        {"role": "user", "content": "החזרתי שמלה לפני שבועיים ועוד לא קיבלתי החזר כספי"},
+        {"role": "assistant", "content": "מצטערת על העיכוב, אבדוק עם הצוות ונחזור אליך תוך 24 שעות"},
+        {"role": "user", "content": "אשמח, ההזמנה במספר 4587"}
+      ],
+      "expected": {
+        "extractions": [
+          {
+            "action": "add",
+            "fact_type": "open_issue",
+            "content_semantic": "ממתינה להחזר כספי על הזמנה 4587",
+            "requires_consent": false,
+            "confidence_bucket": "0.85-0.94"
+          }
+        ]
+      }
+    },
+    {
+      "id": "extract_04",
+      "category": "clear_extraction",
+      "description": "Relationship - לקוח קבוע",
+      "business_id": "salon_tlv",
+      "existing_facts": [],
+      "conversation": [
+        {"role": "user", "content": "אני באה אליכם כבר 3 שנים אצל לירון"},
+        {"role": "assistant", "content": "תודה על האמון! לירון פנויה ב-12:00 מחר"},
+        {"role": "user", "content": "מעולה, רק אצלה תמיד"}
+      ],
+      "expected": {
+        "extractions": [
+          {
+            "action": "add",
+            "fact_type": "relationship",
+            "content_semantic": "לקוחה קבועה 3 שנים, מועדפת לירון",
+            "requires_consent": false,
+            "confidence_bucket": "0.85-0.94"
+          }
+        ]
+      }
+    },
+    {
+      "id": "extract_05",
+      "category": "clear_extraction",
+      "description": "Vocabulary - כינוי אישי לשירות",
+      "business_id": "clinic_rg",
+      "existing_facts": [],
+      "conversation": [
+        {"role": "user", "content": "אני רוצה לקבוע שוב את הטיפול הקבוע שלי"},
+        {"role": "assistant", "content": "איזה טיפול בדיוק?"},
+        {"role": "user", "content": "הטיפול הקבוע - מניקור ג'ל אצל רותי"},
+        {"role": "assistant", "content": "מצוין, בודקת זמינות אצל רותי"}
+      ],
+      "expected": {
+        "extractions": [
+          {
+            "action": "add",
+            "fact_type": "vocabulary",
+            "content_semantic": "'הטיפול הקבוע' = מניקור ג'ל",
+            "requires_consent": false,
+            "confidence_bucket": "0.85-0.94"
+          }
+        ]
+      }
+    },
+    {
+      "id": "extract_06",
+      "category": "clear_extraction",
+      "description": "שתי עובדות בשיחה אחת",
+      "business_id": "online_shop",
+      "existing_facts": [],
+      "conversation": [
+        {"role": "user", "content": "אני תמיד לובשת מידה 38, ואני אוהבת בעיקר שחור ולבן"},
+        {"role": "assistant", "content": "מצוין, יש לנו מבחר יפה במידה 38 בצבעים אלה"},
+        {"role": "user", "content": "אשמח לראות שמלות חדשות"}
+      ],
+      "expected": {
+        "extractions": [
+          {
+            "action": "add",
+            "fact_type": "personal_info",
+            "content_semantic": "לובשת מידה 38",
+            "requires_consent": false,
+            "confidence_bucket": "0.85-0.94"
+          },
+          {
+            "action": "add",
+            "fact_type": "preference",
+            "content_semantic": "מעדיפה צבעים שחור ולבן",
+            "requires_consent": false,
+            "confidence_bucket": "0.85-0.94"
+          }
+        ]
+      }
+    },
+    {
+      "id": "extract_07",
+      "category": "clear_extraction",
+      "description": "ערוץ תקשורת מועדף",
+      "business_id": "consultant",
+      "existing_facts": [],
+      "conversation": [
+        {"role": "user", "content": "אני מעדיפה שתשלחי לי הכל במייל, בוואטסאפ אני מפספסת"},
+        {"role": "assistant", "content": "אין בעיה, מה כתובת המייל?"},
+        {"role": "user", "content": "meirav.k@gmail.com"}
+      ],
+      "expected": {
+        "extractions": [
+          {
+            "action": "add",
+            "fact_type": "preference",
+            "content_semantic": "מעדיפה תקשורת במייל ולא בוואטסאפ",
+            "requires_consent": false,
+            "confidence_bucket": "0.85-0.94"
+          }
+        ]
+      }
+    },
+    {
+      "id": "extract_08",
+      "category": "clear_extraction",
+      "description": "מגיעה עם ילדים - מידע תפעולי",
+      "business_id": "salon_tlv",
+      "existing_facts": [],
+      "conversation": [
+        {"role": "user", "content": "אני באה תמיד עם הבן שלי בן 4, אם יש לכם פינת ילדים"},
+        {"role": "assistant", "content": "כן יש פינת ילדים, מוזמנת לבוא איתו"},
+        {"role": "user", "content": "מעולה, נקבע לשלישי"}
+      ],
+      "expected": {
+        "extractions": [
+          {
+            "action": "add",
+            "fact_type": "personal_info",
+            "content_semantic": "מגיעה עם בן 4 לטיפולים",
+            "requires_consent": false,
+            "confidence_bucket": "0.85-0.94"
+          }
+        ]
+      }
+    },
+
+    {
+      "id": "confirm_01",
+      "category": "confirm_supersede",
+      "description": "אישור של preference קיים",
+      "business_id": "salon_tlv",
+      "existing_facts": [
+        {"id": 15, "fact_type": "preference", "content": "מעדיפה תורים בבוקר", "last_confirmed": "2026-03-15"}
+      ],
+      "conversation": [
+        {"role": "user", "content": "אני רוצה תור, בוקר כמו תמיד הכי טוב לי"},
+        {"role": "assistant", "content": "מצוין, יש לי ב-9:30 מחר"},
+        {"role": "user", "content": "מתאים"}
+      ],
+      "expected": {
+        "extractions": [
+          {
+            "action": "confirm",
+            "fact_type": "preference",
+            "content_semantic": "מעדיפה תורים בבוקר",
+            "confirms_id": 15,
+            "requires_consent": false,
+            "confidence_bucket": "0.85-0.94"
+          }
+        ]
+      }
+    },
+    {
+      "id": "confirm_02",
+      "category": "confirm_supersede",
+      "description": "אישור של personal_info קיים",
+      "business_id": "consultant",
+      "existing_facts": [
+        {"id": 22, "fact_type": "personal_info", "content": "טבעונית", "last_confirmed": "2026-01-10"}
+      ],
+      "conversation": [
+        {"role": "user", "content": "תזכרי שאני טבעונית, חשוב לי שזה יהיה בהתחלה של התפריט"},
+        {"role": "assistant", "content": "ברור, התפריט מותאם לחלוטין"},
+        {"role": "user", "content": "תודה"}
+      ],
+      "expected": {
+        "extractions": [
+          {
+            "action": "confirm",
+            "fact_type": "personal_info",
+            "content_semantic": "טבעונית",
+            "confirms_id": 22,
+            "requires_consent": false,
+            "confidence_bucket": "0.85-0.94"
+          }
+        ]
+      }
+    },
+    {
+      "id": "supersede_01",
+      "category": "confirm_supersede",
+      "description": "החלפת preference - שעות מועדפות השתנו",
+      "business_id": "salon_tlv",
+      "existing_facts": [
+        {"id": 18, "fact_type": "preference", "content": "מעדיפה תורים בבוקר", "last_confirmed": "2026-02-01"}
+      ],
+      "conversation": [
+        {"role": "user", "content": "מאז שהתחלתי עבודה חדשה אני יכולה רק אחרי 17:00"},
+        {"role": "assistant", "content": "הבנתי, אעדכן. יש לי ב-18:00 ביום שלישי"},
+        {"role": "user", "content": "מתאים מאוד, נקבע"}
+      ],
+      "expected": {
+        "extractions": [
+          {
+            "action": "supersede",
+            "fact_type": "preference",
+            "content_semantic": "זמינה רק אחרי 17:00",
+            "supersedes_id": 18,
+            "requires_consent": false,
+            "confidence_bucket": "0.85-0.94"
+          }
+        ]
+      }
+    },
+    {
+      "id": "supersede_02",
+      "category": "confirm_supersede",
+      "description": "החלפת personal_info - שינוי במידה",
+      "business_id": "online_shop",
+      "existing_facts": [
+        {"id": 33, "fact_type": "personal_info", "content": "לובשת מידה M", "last_confirmed": "2025-12-20"}
+      ],
+      "conversation": [
+        {"role": "user", "content": "אני צריכה מידה L עכשיו, ירדתי קצת אבל בגדים יותר רחבים זה הסטייל"},
+        {"role": "assistant", "content": "הבנתי, אעדכן. מציגה לך L בקטלוג"},
+        {"role": "user", "content": "מעולה"}
+      ],
+      "expected": {
+        "extractions": [
+          {
+            "action": "supersede",
+            "fact_type": "personal_info",
+            "content_semantic": "לובשת מידה L",
+            "supersedes_id": 33,
+            "requires_consent": false,
+            "confidence_bucket": "0.70-0.84"
+          }
+        ]
+      }
+    },
+    {
+      "id": "supersede_03",
+      "category": "confirm_supersede",
+      "description": "סגירה של open_issue",
+      "business_id": "online_shop",
+      "existing_facts": [
+        {"id": 44, "fact_type": "open_issue", "content": "ממתינה להחזר על הזמנה 4587", "last_confirmed": "2026-05-01"}
+      ],
+      "conversation": [
+        {"role": "user", "content": "ההחזר הגיע, תודה!"},
+        {"role": "assistant", "content": "מעולה! נשמח לראותך שוב"},
+        {"role": "user", "content": "בהחלט"}
+      ],
+      "expected": {
+        "extractions": [
+          {
+            "action": "supersede",
+            "fact_type": "open_issue",
+            "content_semantic": "החזר על הזמנה 4587 התקבל",
+            "supersedes_id": 44,
+            "requires_consent": false,
+            "confidence_bucket": "0.85-0.94"
+          }
+        ],
+        "note": "אפשרי גם שהמודל יחזיר action=add עם content שמסמן שההחזר נסגר, או יסמן ב-skipped. הקבלה גמישה."
+      }
+    },
+
+    {
+      "id": "pii_01",
+      "category": "pii_sensitive",
+      "description": "אלרגיה - מידע בריאותי",
+      "business_id": "clinic_rg",
+      "existing_facts": [],
+      "conversation": [
+        {"role": "user", "content": "חשוב שתדעי שאני אלרגית לאגוזים, אז אם יש מוצרים עם זה אני לא יכולה"},
+        {"role": "assistant", "content": "תודה שעדכנת, אסמן בכרטיס שלך ונדאג שהמוצרים בטוחים"},
+        {"role": "user", "content": "תודה רבה"}
+      ],
+      "expected": {
+        "extractions": [
+          {
+            "action": "add",
+            "fact_type": "personal_info",
+            "content_semantic": "אלרגית לאגוזים",
+            "requires_consent": true,
+            "confidence_bucket": "0.85-0.94"
+          }
+        ]
+      }
+    },
+    {
+      "id": "pii_02",
+      "category": "pii_sensitive",
+      "description": "הריון - מידע בריאותי",
+      "business_id": "clinic_rg",
+      "existing_facts": [],
+      "conversation": [
+        {"role": "user", "content": "אני בהריון בחודש חמישי, יש טיפולים שאני לא יכולה לעשות?"},
+        {"role": "assistant", "content": "כן, חלק מהטיפולים לא מומלצים בהריון. אעביר אותך לרשימה המתאימה"},
+        {"role": "user", "content": "תודה"}
+      ],
+      "expected": {
+        "extractions": [
+          {
+            "action": "add",
+            "fact_type": "personal_info",
+            "content_semantic": "בהריון בחודש חמישי",
+            "requires_consent": true,
+            "confidence_bucket": "0.85-0.94"
+          }
+        ]
+      }
+    },
+    {
+      "id": "pii_03",
+      "category": "pii_sensitive",
+      "description": "מצב משפחתי - גירושין",
+      "business_id": "consultant",
+      "existing_facts": [],
+      "conversation": [
+        {"role": "user", "content": "התגרשתי לאחרונה ואני גרה לבד עם הילדים, אין לי הרבה זמן לבשל"},
+        {"role": "assistant", "content": "אקח את זה בחשבון בתכנית, נמצא פתרונות מהירים"},
+        {"role": "user", "content": "תודה על ההבנה"}
+      ],
+      "expected": {
+        "extractions": [
+          {
+            "action": "add",
+            "fact_type": "personal_info",
+            "content_semantic": "גרושה, אם חד הורית",
+            "requires_consent": true,
+            "confidence_bucket": "0.85-0.94"
+          }
+        ],
+        "note": "מקובל גם לחלץ שתי עובדות נפרדות, או גם להחליט שזה רגיש מדי לחלץ ולשים ב-skipped עם הסבר"
+      }
+    },
+    {
+      "id": "pii_04",
+      "category": "pii_sensitive",
+      "description": "מחלה כרונית",
+      "business_id": "consultant",
+      "existing_facts": [],
+      "conversation": [
+        {"role": "user", "content": "יש לי סוכרת סוג 2, זה משפיע על התזונה כמובן"},
+        {"role": "assistant", "content": "כמובן, אבנה תכנית מתאימה. איזה תרופות את לוקחת?"},
+        {"role": "user", "content": "מטפורמין"}
+      ],
+      "expected": {
+        "extractions": [
+          {
+            "action": "add",
+            "fact_type": "personal_info",
+            "content_semantic": "סוכרת סוג 2, נוטלת מטפורמין",
+            "requires_consent": true,
+            "confidence_bucket": "0.85-0.94"
+          }
+        ]
+      }
+    },
+
+    {
+      "id": "edge_01",
+      "category": "edge_cases",
+      "description": "Inference - העדפת זמן רק מהיסטוריית תורים, לא מאמירה",
+      "business_id": "salon_tlv",
+      "existing_facts": [],
+      "conversation": [
+        {"role": "user", "content": "אני רוצה לקבוע תור"},
+        {"role": "assistant", "content": "בשמחה, ראיתי שכל התורים שלך עד היום היו בשלישי בבוקר. רוצה לקבוע שוב כך?"},
+        {"role": "user", "content": "כן בדיוק"}
+      ],
+      "expected": {
+        "extractions": [],
+        "min_skipped_count": 1,
+        "note": "המודל לא צריך לחלץ בלי שהלקוחה אמרה את זה במפורש. אם הוא כן יחלץ - זה false positive."
+      }
+    },
+    {
+      "id": "edge_02",
+      "category": "edge_cases",
+      "description": "ביטוי לא ברור - אי אפשר לקבוע סובייקט",
+      "business_id": "online_shop",
+      "existing_facts": [],
+      "conversation": [
+        {"role": "user", "content": "אנחנו אוהבות שמלות סגולות בבית"},
+        {"role": "assistant", "content": "יש לנו מבחר יפה, אפנה אותך לקטגוריה"},
+        {"role": "user", "content": "מעולה"}
+      ],
+      "expected": {
+        "extractions": [],
+        "min_skipped_count": 1,
+        "note": "'בבית' לא חד-משמעי - מי אנחנו? אם המודל בכל זאת מחלץ, צריך להיות עם confidence נמוך מאוד או ב-skipped"
+      }
+    },
+    {
+      "id": "edge_03",
+      "category": "edge_cases",
+      "description": "אזכור עקיף של שירות שלא ברשימה",
+      "business_id": "clinic_rg",
+      "existing_facts": [],
+      "conversation": [
+        {"role": "user", "content": "אני באה תמיד ל'פינוק הקטן' של מירב"},
+        {"role": "assistant", "content": "בודקת איזה טיפול זה אצל מירב..."},
+        {"role": "user", "content": "טיפול פנים אנטי אייג'ינג, אצלה זה מיוחד"}
+      ],
+      "expected": {
+        "extractions": [
+          {
+            "action": "add",
+            "fact_type": "vocabulary",
+            "content_semantic": "'הפינוק הקטן' = טיפול פנים אנטי אייג'ינג אצל מירב",
+            "requires_consent": false,
+            "confidence_bucket": "0.70-0.84"
+          }
+        ],
+        "note": "מקובל גם שתוחלץ עובדה נוספת על העדפת מטפלת (מירב), זה לא חובה"
+      }
+    }
+  ]
+}
