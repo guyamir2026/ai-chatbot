@@ -1,0 +1,152 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="page-header animate-fade-in">
+    <h1><i class="bi bi-stars"></i> החבילה שלי</h1>
+    <p style="opacity: 0.75; margin-top: 0.4rem;">
+        מבט כולל על החבילה הנוכחית, הפיצ'רים הזמינים, ותקופת החסד לשינויים.
+    </p>
+</div>
+
+<!-- ── חבילה נוכחית ─────────────────────────────────────────────────── -->
+<div class="card animate-slide-up stagger-1">
+    <div class="card-header">
+        <span><i class="bi bi-bookmark-star"></i> החבילה שלך</span>
+    </div>
+    <div class="card-body">
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1.25rem;">
+            <div>
+                <div style="font-size: 0.85rem; opacity: 0.65;">חבילה</div>
+                <div style="font-size: 1.5rem; font-weight: 700; margin-top: 0.2rem;">
+                    {{ plan_definition.display_name }}
+                </div>
+            </div>
+            <div>
+                <div style="font-size: 0.85rem; opacity: 0.65;">ערוץ תקשורת</div>
+                <div style="font-size: 1.1rem; font-weight: 600; margin-top: 0.2rem;">
+                    {% if plan_definition.channel == "telegram" %}
+                        <i class="bi bi-telegram"></i> Telegram
+                    {% elif plan_definition.channel == "whatsapp" %}
+                        <i class="bi bi-whatsapp"></i> WhatsApp
+                    {% else %}
+                        {{ plan_definition.channel }}
+                    {% endif %}
+                </div>
+            </div>
+            <div>
+                <div style="font-size: 0.85rem; opacity: 0.65;">תאריך תחילת חבילה</div>
+                <div style="margin-top: 0.2rem;">
+                    {% if subscription.plan_started_at %}
+                        {{ subscription.plan_started_at | il_datetime }}
+                    {% else %}—{% endif %}
+                </div>
+            </div>
+            <div>
+                <div style="font-size: 0.85rem; opacity: 0.65;">ימי חסד לשינויים</div>
+                <div style="margin-top: 0.2rem;">
+                    {{ subscription.grace_period_days }} ימים
+                </div>
+            </div>
+        </div>
+
+        <!-- סטטוס תקופת חסד -->
+        <div style="margin-top: 1.25rem; padding-top: 1rem; border-top: 1px solid var(--border, #eee);">
+            {% if is_in_grace_period and days_remaining_in_grace > 0 %}
+                <div style="color: var(--success, #28a745); font-weight: 600;">
+                    <i class="bi bi-check-circle"></i>
+                    בתקופת חסד — נותרו {{ days_remaining_in_grace }}
+                    {% if days_remaining_in_grace == 1 %}יום{% else %}ימים{% endif %}
+                </div>
+                <div style="font-size: 0.9rem; opacity: 0.75; margin-top: 0.3rem;">
+                    בתקופת החסד, שינויים בתוכן ובהגדרות שתבקשו מספק השירות מתבצעים ללא חיוב נוסף.
+                </div>
+            {% elif is_grace_ended %}
+                <div style="color: var(--text-muted, #888); font-weight: 600;">
+                    <i class="bi bi-clock-history"></i> תקופת החסד הסתיימה
+                </div>
+                <div style="font-size: 0.9rem; opacity: 0.75; margin-top: 0.3rem;">
+                    שינויים שתבקשו מעבר לתקופת החסד מחויבים בתעריף השעתי הסטנדרטי.
+                </div>
+            {% endif %}
+        </div>
+    </div>
+</div>
+
+<!-- ── מטריצת פיצ'רים ───────────────────────────────────────────────── -->
+<div class="card animate-slide-up stagger-2">
+    <div class="card-header">
+        <span><i class="bi bi-toggles"></i> פיצ'רים בחבילה</span>
+    </div>
+    <div class="card-body">
+        <div class="table-wrapper">
+            <table>
+                <thead>
+                    <tr>
+                        <th>פיצ'ר</th>
+                        <th>סטטוס</th>
+                        <th>זמין החל מ-</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for row in feature_rows %}
+                    <tr>
+                        <td class="fw-semibold">
+                            {{ row.label }}
+                            {% if row.has_override %}
+                            <span style="font-size: 0.8em; color: var(--warning, #fd7e14); margin-right: 0.4rem;"
+                                  title="הופעל ידנית ע״י ספק השירות">
+                                <i class="bi bi-pencil-square"></i> הופעל ידנית
+                            </span>
+                            {% endif %}
+                        </td>
+                        <td>
+                            {% if row.is_active %}
+                                <span style="color: var(--success, #28a745); font-weight: 600;">
+                                    <i class="bi bi-check-circle-fill"></i> פעיל
+                                </span>
+                            {% else %}
+                                <span style="color: var(--text-muted, #888);">
+                                    <i class="bi bi-lock-fill"></i> נעול
+                                </span>
+                            {% endif %}
+                        </td>
+                        <td>
+                            {% if row.min_plan_key %}
+                                {{ plans[row.min_plan_key].display_name }}
+                            {% else %}—{% endif %}
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+<!-- ── יצירת קשר לשדרוג ─────────────────────────────────────────────── -->
+<div class="card animate-slide-up stagger-3">
+    <div class="card-header">
+        <span><i class="bi bi-arrow-up-circle"></i> רוצים לשדרג?</span>
+    </div>
+    <div class="card-body">
+        <p style="margin: 0 0 0.75rem 0;">
+            כל השינויים בחבילה — שדרוג, הוספת פיצ'ר נקודתי, או שאלות —
+            מתבצעים מול ספק השירות.
+        </p>
+        <ul style="list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 0.5rem;">
+            <li>
+                <i class="bi bi-envelope-fill"></i>
+                <strong>מייל:</strong>
+                <a href="mailto:amirbiron@gmail.com">amirbiron@gmail.com</a>
+            </li>
+            <li>
+                <i class="bi bi-whatsapp"></i>
+                <strong>WhatsApp:</strong>
+                <a href="https://wa.me/972526915503">052-6915503</a>
+                /
+                <a href="https://wa.me/972543978620">054-3978620</a>
+            </li>
+        </ul>
+    </div>
+</div>
+{% endblock %}
