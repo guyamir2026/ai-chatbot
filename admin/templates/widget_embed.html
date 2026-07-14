@@ -1,0 +1,167 @@
+{% extends "base.html" %}
+
+{% block content %}
+<style>
+    /* Snippets — צבעים קבועים שעובדים גם ב-light וגם ב-dark theme.
+       בעבר השתמשתי ב-var(--bg-2, ...) שלא קיים בערכה והטקסט נבלע
+       ברקע. כאן רקע כהה + טקסט בהיר, כמו ב-VS Code. */
+    .widget-snippet {
+        background: #0f172a;
+        color: #e2e8f0;
+        padding: 14px;
+        border-radius: 8px;
+        overflow-x: auto;
+        direction: ltr;
+        text-align: left;
+        font-size: 13px;
+        margin: 0;
+        border: 1px solid rgba(148, 163, 184, 0.18);
+        font-family: ui-monospace, "SF Mono", Menlo, Monaco, "Cascadia Mono", "Roboto Mono", monospace;
+    }
+    .widget-snippet code {
+        color: inherit;
+        background: transparent;
+    }
+    .widget-snippet-wrap {
+        position: relative;
+    }
+    .widget-snippet-wrap .btn-copy {
+        position: absolute;
+        top: 8px;
+        right: 8px;
+    }
+</style>
+
+<div class="page-header animate-fade-in">
+    <h1><i class="bi bi-code-slash"></i> הטמעת widget באתר</h1>
+    <p class="text-muted" style="margin-top: 6px;">
+        הוסיפו את הבוט כצ'אט צף לאתר השיווקי שלכם — שורת קוד אחת בלבד.
+    </p>
+</div>
+
+<div class="card animate-slide-up stagger-1">
+    <div class="card-header">
+        <span><i class="bi bi-rocket-takeoff"></i> שלב 1 — הטמעה מהירה</span>
+    </div>
+    <div class="card-body">
+        <p>העתיקו את השורה הבאה והדביקו אותה לפני התג <code>&lt;/body&gt;</code> בכל עמוד באתר:</p>
+        <div class="widget-snippet-wrap">
+            <pre id="snippet-min" class="widget-snippet"><code>&lt;script src="{{ embed_url }}" async&gt;&lt;/script&gt;</code></pre>
+            <button type="button" class="btn btn-sm btn-secondary btn-copy"
+                    onclick="copyText('snippet-min', this)">
+                <i class="bi bi-clipboard"></i> העתק
+            </button>
+        </div>
+        <p class="text-small text-muted" style="margin-top: 10px;">
+            הסקריפט יוצר כפתור צף בפינה הימנית-תחתונה של האתר. לחיצה תפתח חלון צ'אט מחובר לעוזר הדיגיטלי שלכם.
+        </p>
+    </div>
+</div>
+
+<div class="card animate-slide-up stagger-2">
+    <div class="card-header">
+        <span><i class="bi bi-palette"></i> שלב 2 — התאמה אישית (אופציונלי)</span>
+    </div>
+    <div class="card-body">
+        <p>אפשר לשלוט בעיצוב דרך <code>data-*</code> attributes:</p>
+        <div class="widget-snippet-wrap">
+            <pre id="snippet-styled" class="widget-snippet"><code>&lt;script src="{{ embed_url }}"
+        data-position="bottom-right"
+        data-color="#2563eb"
+        data-font="Heebo, sans-serif"
+        data-radius="20"
+        data-title="העוזר של {{ widget_config.businessName }}"
+        async&gt;&lt;/script&gt;</code></pre>
+            <button type="button" class="btn btn-sm btn-secondary btn-copy"
+                    onclick="copyText('snippet-styled', this)">
+                <i class="bi bi-clipboard"></i> העתק
+            </button>
+        </div>
+
+        <h3 style="margin-top: 20px; font-size: 16px;">כל ה-attributes הזמינים</h3>
+        <div style="overflow-x: auto;">
+        <table class="table" style="width: 100%; font-size: 14px;">
+            <thead>
+                <tr>
+                    <th>שם</th>
+                    <th>ברירת מחדל</th>
+                    <th>הסבר</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr><td><code>data-position</code></td><td>bottom-right</td><td>מיקום הכפתור: bottom-right / bottom-left / top-right / top-left</td></tr>
+                <tr><td><code>data-color</code></td><td>#2563eb</td><td>צבע ראשי (hex / rgb / שם CSS)</td></tr>
+                <tr><td><code>data-bg</code></td><td>#ffffff</td><td>צבע רקע חלון הצ'אט</td></tr>
+                <tr><td><code>data-text</code></td><td>#1f2937</td><td>צבע הטקסט בחלון</td></tr>
+                <tr><td><code>data-font</code></td><td>system-ui</td><td>שם פונט (עד 100 תווים)</td></tr>
+                <tr><td><code>data-radius</code></td><td>16</td><td>רדיוס פינות בפיקסלים (0–32)</td></tr>
+                <tr><td><code>data-width</code></td><td>360</td><td>רוחב חלון בפיקסלים (280–600)</td></tr>
+                <tr><td><code>data-height</code></td><td>520</td><td>גובה חלון בפיקסלים (360–800)</td></tr>
+                <tr><td><code>data-icon</code></td><td>💬</td><td>אייקון על הכפתור הצף (עד 8 תווים)</td></tr>
+                <tr><td><code>data-title</code></td><td>שם העסק</td><td>כותרת בראש החלון</td></tr>
+                <tr><td><code>data-subtitle</code></td><td>נשמח לעזור</td><td>תת-כותרת קטנה</td></tr>
+                <tr><td><code>data-auto-open</code></td><td>false</td><td><code>"true"</code> יפתח את החלון אוטומטית</td></tr>
+            </tbody>
+        </table>
+        </div>
+    </div>
+</div>
+
+<div class="card animate-slide-up stagger-3">
+    <div class="card-header">
+        <span><i class="bi bi-eye"></i> שלב 3 — בדיקה</span>
+    </div>
+    <div class="card-body">
+        <p>נסו את ה-widget בעמוד הדגמה ייעודי:</p>
+        <p>
+            <a href="{{ demo_url }}" target="_blank" rel="noopener" class="btn btn-primary">
+                <i class="bi bi-box-arrow-up-right"></i> פתיחת עמוד הדגמה
+            </a>
+        </p>
+        <p class="text-small text-muted" style="margin-top: 12px;">
+            <i class="bi bi-info-circle"></i>
+            השיחה ב-widget אנונימית — לא נשמרת ב-DB ולא מופיעה בעמוד "שיחות". המבקרים מקבלים תשובות מבוססות בסיס הידע.
+        </p>
+    </div>
+</div>
+
+<div class="card animate-slide-up stagger-4">
+    <div class="card-header">
+        <span><i class="bi bi-shield-lock"></i> שלב 4 — אבטחה (מומלץ)</span>
+    </div>
+    <div class="card-body">
+        <p>כדי למנוע שימוש לרעה במשאבי OpenAI שלכם, מומלץ להגביל את ה-API לאתר שלכם בלבד:</p>
+        <ol>
+            <li>בקובץ ההגדרות של השרת (Render → Environment), הוסיפו משתנה:</li>
+        </ol>
+        <div class="widget-snippet-wrap">
+            <pre id="snippet-env" class="widget-snippet"><code>WIDGET_ALLOWED_ORIGINS=https://your-site.com,https://www.your-site.com</code></pre>
+            <button type="button" class="btn btn-sm btn-secondary btn-copy"
+                    onclick="copyText('snippet-env', this)">
+                <i class="bi bi-clipboard"></i> העתק
+            </button>
+        </div>
+        <p class="text-small text-muted" style="margin-top: 8px;">
+            ללא הגדרה — ה-widget פועל מכל אתר. עם רשימה — בקשות מ-origin אחר ייחסמו (HTTP 403).
+        </p>
+        <p class="text-small text-muted">
+            יש גם תקרת בקשות פר-IP (<code>WIDGET_RATE_LIMIT_PER_HOUR</code>, ברירת מחדל 30) כקו הגנה שני.
+        </p>
+    </div>
+</div>
+
+<script>
+function copyText(elementId, btn) {
+    var el = document.getElementById(elementId);
+    if (!el) return;
+    var text = el.innerText || el.textContent || '';
+    navigator.clipboard.writeText(text).then(function() {
+        var orig = btn.innerHTML;
+        btn.innerHTML = '<i class="bi bi-check2"></i> הועתק';
+        setTimeout(function() { btn.innerHTML = orig; }, 1500);
+    }).catch(function() {
+        alert('לא ניתן להעתיק אוטומטית — סמנו והעתיקו ידנית.');
+    });
+}
+</script>
+{% endblock %}
