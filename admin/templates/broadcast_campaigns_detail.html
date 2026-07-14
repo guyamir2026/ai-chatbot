@@ -1,0 +1,283 @@
+{% extends "base.html" %}
+
+{% block content %}
+{% set _category_labels = {'MARKETING': 'שיווק', 'UTILITY': 'שירות', 'AUTHENTICATION': 'אימות'} %}
+<div class="page-header animate-fade-in" style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: var(--space-xs);">
+    <h1><i class="bi bi-broadcast"></i> {{ campaign.title or "קמפיין" }} #{{ campaign.id }}</h1>
+    <div style="display: flex; gap: 0.5rem;">
+        {% if campaign.status == "draft" %}
+        <a href="/broadcast/campaigns/{{ campaign.id }}/edit" class="btn btn-secondary">
+            <i class="bi bi-pencil"></i> חזרה לעריכה
+        </a>
+        {% endif %}
+        {% if campaign.status in ["sending", "completed", "failed", "paused"] %}
+        <a href="/broadcast/campaigns/{{ campaign.id }}/export.csv" class="btn btn-secondary">
+            <i class="bi bi-file-earmark-spreadsheet"></i> ייצוא CSV
+        </a>
+        {% endif %}
+        <a href="/broadcast/campaigns" class="btn btn-secondary">
+            <i class="bi bi-arrow-right"></i> חזרה לרשימה
+        </a>
+    </div>
+</div>
+
+<!-- מידע על התבנית והקמפיין -->
+<div class="card animate-slide-up stagger-1" style="margin-bottom: var(--space-sm);">
+    <div class="card-body" style="padding: var(--space-sm);">
+        <div style="display: flex; gap: var(--space-sm); flex-wrap: wrap;">
+            <div>
+                <span class="text-small text-muted">תבנית:</span>
+                {% if template %}
+                <code>{{ template.friendly_name }}</code>
+                {% else %}
+                <span class="text-muted">(נמחקה)</span>
+                {% endif %}
+            </div>
+            {% if template %}
+            <div>
+                <span class="text-small text-muted">קטגוריה:</span>
+                {{ _category_labels.get(template.category, template.category) }}
+            </div>
+            {% endif %}
+            <div>
+                <span class="text-small text-muted">קהל:</span>
+                {% if campaign.audience_type == "opted_in_only" %}
+                רק opted-in
+                {% else %}
+                כל משתמשי WhatsApp
+                {% endif %}
+                {% if campaign.audience_filter.inactive_days %}
+                (פעילים ב-{{ campaign.audience_filter.inactive_days }} ימים)
+                {% endif %}
+            </div>
+            <div>
+                <span class="text-small text-muted">נוצר:</span>
+                {{ campaign.created_at|il_datetime }}
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- פאנל התקדמות — עם polling אם בשליחה -->
+<div class="card animate-slide-up stagger-2" style="margin-bottom: var(--space-sm);">
+    <div class="card-header">
+        <span><i class="bi bi-activity"></i> התקדמות</span>
+        <div style="display: inline-flex; gap: 0.5rem; margin-right: auto;">
+            {% if campaign.status == "draft" %}
+            <form method="POST" action="/broadcast/campaigns/{{ campaign.id }}/send"
+                  style="margin: 0;"
+                  onsubmit="return confirm('לשלוח את הקמפיין עכשיו? לא ניתן לבטל באמצע.');">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <button type="submit" class="btn btn-primary btn-sm">
+                    <i class="bi bi-send-check"></i> שלח עכשיו
+                </button>
+            </form>
+            {% elif campaign.status == "sending" %}
+            <form method="POST" action="/broadcast/campaigns/{{ campaign.id }}/pause"
+                  style="margin: 0;"
+                  onsubmit="return confirm('להשהות את הקמפיין? הודעות שכבר נשלחו לא יבוטלו.');">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <button type="submit" class="btn btn-warning btn-sm">
+                    <i class="bi bi-pause-circle"></i> השהה
+                </button>
+            </form>
+            {% elif campaign.status == "paused" %}
+            <form method="POST" action="/broadcast/campaigns/{{ campaign.id }}/resume"
+                  style="margin: 0;">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <button type="submit" class="btn btn-primary btn-sm">
+                    <i class="bi bi-play-circle"></i> חדש שליחה
+                </button>
+            </form>
+            {% elif campaign.status in ["completed", "failed"] and (progress.failed + progress.undelivered) > 0 %}
+            <form method="POST" action="/broadcast/campaigns/{{ campaign.id }}/retry-failed"
+                  style="margin: 0;"
+                  onsubmit="return confirm('לנסות שוב את הנמענים שנכשלו? delivered/read לא יושפעו.');">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <button type="submit" class="btn btn-secondary btn-sm">
+                    <i class="bi bi-arrow-clockwise"></i>
+                    נסה שוב ({{ progress.failed + progress.undelivered }})
+                </button>
+            </form>
+            {% endif %}
+        </div>
+    </div>
+    <div class="card-body">
+        <div id="progress-pane"
+             {% if campaign.status == "sending" %}
+             hx-get="/broadcast/campaigns/{{ campaign.id }}/progress"
+             hx-trigger="load, every 3s"
+             hx-swap="innerHTML"
+             {% endif %}>
+            {% include "partials/broadcast_campaign_progress.html" %}
+        </div>
+    </div>
+</div>
+
+<!-- תזמון: רק אם draft (אפשר לתזמן) או scheduled (אפשר לבטל) -->
+{% if campaign.status in ["draft", "scheduled"] %}
+<div class="card animate-slide-up stagger-2" style="margin-bottom: var(--space-sm);">
+    <div class="card-header">
+        <span><i class="bi bi-calendar-event"></i> תזמון לעתיד</span>
+    </div>
+    <div class="card-body">
+        {% if campaign.status == "draft" %}
+        <form method="POST" action="/broadcast/campaigns/{{ campaign.id }}/schedule"
+              style="display: flex; gap: 0.5rem; align-items: flex-end; flex-wrap: wrap;">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <div class="form-group" style="margin-bottom: 0;">
+                <label class="form-label" for="scheduled_at">
+                    <strong>שלח בתאריך ושעה (שעון ישראל):</strong>
+                </label>
+                <input type="datetime-local" name="scheduled_at" id="scheduled_at"
+                       class="form-control" required>
+            </div>
+            <button type="submit" class="btn btn-primary">
+                <i class="bi bi-clock"></i> תזמן
+            </button>
+        </form>
+        <div class="text-small text-muted" style="margin-top: 0.5rem;">
+            קמפיינים שיווק שייפלו בחלון שבת/חגים יידחו אוטומטית למוצ"ש
+            או לאחר החג.
+        </div>
+        {% else %}
+        <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.5rem;">
+            <div>
+                <i class="bi bi-clock-history"></i>
+                <strong>מתוזמן ל:</strong> {{ campaign.scheduled_at|il_datetime_local }} (שעון ישראל)
+            </div>
+            <form method="POST" action="/broadcast/campaigns/{{ campaign.id }}/cancel-schedule"
+                  style="margin: 0;"
+                  onsubmit="return confirm('לבטל את התזמון?');">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <button type="submit" class="btn btn-sm btn-secondary">
+                    <i class="bi bi-x-circle"></i> בטל תזמון
+                </button>
+            </form>
+        </div>
+        {% endif %}
+    </div>
+</div>
+{% endif %}
+
+<!-- Error breakdown: אגרגציה של קודי שגיאה — נותן overview מהיר של הבעיה השכיחה -->
+{% if error_breakdown %}
+<div class="card animate-slide-up stagger-3" style="margin-bottom: var(--space-sm);">
+    <div class="card-header">
+        <span><i class="bi bi-bar-chart"></i> פירוק שגיאות לפי קוד</span>
+    </div>
+    <div class="card-body" style="padding: 0;">
+        <div style="overflow-x: auto;">
+        <table class="data-table" style="width: 100%;">
+            <thead>
+                <tr>
+                    <th>קוד שגיאה</th>
+                    <th>ספירה</th>
+                    <th>הודעה לדוגמה</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for e in error_breakdown %}
+                <tr>
+                    <td><span class="badge badge-danger">{{ e.error_code }}</span></td>
+                    <td><strong>{{ e.count }}</strong></td>
+                    <td class="text-small" style="max-width: 500px;">{{ e.sample_message or "—" }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        </div>
+    </div>
+</div>
+{% endif %}
+
+<!-- כישלונות: failed (Twilio דחה) + undelivered (לא הגיע למכשיר) — חשוב ל-debug -->
+{% if failed_deliveries %}
+<div class="card animate-slide-up stagger-3" style="margin-bottom: var(--space-sm); border-right: 3px solid #dc3545;">
+    <div class="card-header">
+        <span><i class="bi bi-exclamation-triangle"></i> שליחות שלא הגיעו ({{ failed_deliveries|length }})</span>
+    </div>
+    <div class="card-body" style="padding: 0;">
+        <div style="overflow-x: auto;">
+        <table class="data-table" style="width: 100%;">
+            <thead>
+                <tr>
+                    <th>נמען</th>
+                    <th>סטטוס</th>
+                    <th>Twilio SID</th>
+                    <th>קוד שגיאה</th>
+                    <th>הודעה</th>
+                    <th>נכשל ב-</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for d in failed_deliveries %}
+                <tr>
+                    <td><code class="text-small">{{ d.user_id }}</code></td>
+                    <td>
+                        <span class="badge badge-{{ 'danger' if d.status == 'failed' else 'warning' }}">
+                            {{ d.status }}
+                        </span>
+                    </td>
+                    <td class="text-small text-muted">{{ d.twilio_message_sid or "—" }}</td>
+                    <td><span class="badge badge-danger">{{ d.error_code or "—" }}</span></td>
+                    <td class="text-small" style="max-width: 400px;">{{ d.error_message or "—" }}</td>
+                    <td class="text-small text-muted">{{ (d.failed_at or d.queued_at)|il_datetime }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        </div>
+    </div>
+</div>
+{% endif %}
+
+<!-- רשימת כל ה-deliveries -->
+<div class="card animate-slide-up stagger-4">
+    <div class="card-header">
+        <span><i class="bi bi-list-ul"></i> רשימת נמענים ({{ deliveries|length }})</span>
+    </div>
+    <div class="card-body" style="padding: 0;">
+        {% if deliveries %}
+        <div style="overflow-x: auto; max-height: 600px; overflow-y: auto;">
+        <table class="data-table" style="width: 100%;">
+            <thead style="position: sticky; top: 0; background: var(--bg);">
+                <tr>
+                    <th>נמען</th>
+                    <th>סטטוס</th>
+                    <th>Twilio SID</th>
+                    <th>נשלח</th>
+                    <th>נמסר</th>
+                    <th>נקרא</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for d in deliveries %}
+                <tr>
+                    <td><code class="text-small">{{ d.user_id }}</code></td>
+                    <td>
+                        {% set cls = {
+                            'queued': 'secondary', 'sent': 'primary',
+                            'delivered': 'success', 'read': 'success',
+                            'failed': 'danger', 'undelivered': 'danger'
+                        }.get(d.status, 'secondary') %}
+                        <span class="badge badge-{{ cls }}">{{ d.status }}</span>
+                    </td>
+                    <td class="text-small text-muted">{{ d.twilio_message_sid or "—" }}</td>
+                    <td class="text-small text-muted">{{ (d.sent_at|il_datetime) if d.sent_at else "—" }}</td>
+                    <td class="text-small text-muted">{{ (d.delivered_at|il_datetime) if d.delivered_at else "—" }}</td>
+                    <td class="text-small text-muted">{{ (d.read_at|il_datetime) if d.read_at else "—" }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        </div>
+        {% else %}
+        <div style="padding: var(--space-md); text-align: center; color: var(--text-muted);">
+            <i class="bi bi-inbox" style="font-size: 2rem; display: block; margin-bottom: 0.5rem;"></i>
+            אין עדיין נמענים. אם הקמפיין במצב טיוטה — לחצו "שלח עכשיו".
+        </div>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}
