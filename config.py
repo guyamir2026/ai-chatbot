@@ -3,8 +3,11 @@ Configuration module for the AI Business Chatbot.
 Loads settings from environment variables with sensible defaults.
 """
 
+import logging
 import os
 import re
+import sys
+from dataclasses import dataclass
 from pathlib import Path
 from dotenv import load_dotenv
 
@@ -179,6 +182,92 @@ BUSINESS_NAME = os.getenv("BUSINESS_NAME", "Dana's Beauty Salon")
 BUSINESS_PHONE = os.getenv("BUSINESS_PHONE", "")
 BUSINESS_ADDRESS = os.getenv("BUSINESS_ADDRESS", "")
 BUSINESS_WEBSITE = os.getenv("BUSINESS_WEBSITE", "")
+
+
+@dataclass(frozen=True)
+class BusinessConfig:
+    """הזהות העסקית — שם, טלפון, כתובת, אתר."""
+
+    name: str
+    phone: str
+    address: str
+    website: str
+
+
+# tenants שכבר קיבלו אזהרת fallback של זהות עסקית — כדי לא להציף את הלוג
+# בקריאה שחוזרת בכל הודעה/בקשה (state מודולרי ממופתח לפי tenant, כנדרש).
+_identity_fallback_warned: set = set()
+
+
+def _warn_identity_fallback_once(exc: Exception) -> None:
+    """לוג אזהרה פעם אחת פר-tenant כשקריאת הזהות מה-DB נכשלה (בלי PII)."""
+    try:
+        from tenancy import get_current_tenant
+
+        key = get_current_tenant()
+    except Exception:
+        key = "(no-context)"
+    if key in _identity_fallback_warned:
+        return
+    _identity_fallback_warned.add(key)
+    logging.getLogger(__name__).warning(
+        "get_business_config: קריאת הזהות מה-DB נכשלה (tenant=%s) — fallback ל-env: %s",
+        key, exc.__class__.__name__,
+    )
+
+
+def get_business_config() -> BusinessConfig:
+    """מחזיר את הזהות העסקית — **לקרוא בזמן-ריצה, לא לייבא כקבועים**.
+
+    כלל multi-tenant (ראה docs/multi_tenant_migration_spec.md):
+    אסור ש-modules ייבאו את BUSINESS_NAME וחבריו by-value (הערך קופא
+    בזמן ה-import ולא ניתן להחלפה פר-tenant). במקום זה קוראים לפונקציה
+    הזו בכל שימוש.
+
+    מקור האמת הוא ה-DB של ה-tenant הנוכחי (עמודות business_* בטבלת
+    bot_settings); שדה ריק שם — או כשל בקריאת ה-DB (startup מוקדם,
+    טסטים בלי סכימה) — נופל ל-env. כך ה-tenant של ברירת המחדל (legacy,
+    env בלבד) ממשיך לעבוד בלי שינוי, וכל tenant אחר מקבל את הזהות שלו.
+    """
+    _mod = sys.modules[__name__]
+
+    # פרטי כרטיס הביקור (טלפון/כתובת/אתר) — פר-tenant, בעל-העסק עורך אותם
+    # במסך "כרטיס ביקור". מקורם ב-bot_settings; ריק ⇒ fallback ל-env.
+    phone = address = website = ""
+    try:
+        # import עצל — config נטען לפני database ואסור ליצור תלות מעגלית
+        from ai_chatbot import database as _db
+
+        row = _db.get_bot_settings() or {}
+        phone = (row.get("business_phone") or "").strip()
+        address = (row.get("business_address") or "").strip()
+        website = (row.get("business_website") or "").strip()
+    except Exception as exc:
+        _warn_identity_fallback_once(exc)
+
+    # שם העסק — מקור אמת יחיד: display_name שנקבע בהקמת ה-tenant (control
+    # plane). אין שדה שם נפרד לעריכה (מונע כפילות). ל-tenant של ברירת
+    # המחדל (legacy, אין לו רישום בפלטפורמה) ⇒ env.
+    name = ""
+    try:
+        from tenancy import DEFAULT_TENANT, get_current_tenant
+
+        tenant = get_current_tenant()
+        if tenant != DEFAULT_TENANT:
+            import control_plane as _cp
+
+            trow = _cp.get_tenant(tenant)
+            if trow:
+                name = (trow.get("display_name") or "").strip()
+    except Exception as exc:
+        _warn_identity_fallback_once(exc)
+
+    return BusinessConfig(
+        name=name or _mod.BUSINESS_NAME,
+        phone=phone or _mod.BUSINESS_PHONE,
+        address=address or _mod.BUSINESS_ADDRESS,
+        website=website or _mod.BUSINESS_WEBSITE,
+    )
 
 # ─── Telegram Bot Username (for QR code generation) ─────────────────────────
 TELEGRAM_BOT_USERNAME = os.getenv("TELEGRAM_BOT_USERNAME", "")
@@ -511,13 +600,17 @@ def build_system_prompt(
     follow_up_enabled: bool = False,
     custom_prompt: str = "",
     channel: str = "telegram",
+    business_name: str = "",
 ) -> str:
     """בניית פרומפט מערכת משופר המשלב הנחיות טון, DNA עסקי וכללי התנהגות.
 
     משלב את הפרומפט המשופר (אנושי, מותאם טון) עם עשרת הכללים המקוריים.
     כשהפיצ'ר שאלות המשך פעיל — כלל 11 מוזרק לאחר כלל 10, לפני סקשן המגבלות.
     custom_prompt — הנחיות מותאמות אישית מבעל העסק, מוזרקות לפני סקשן הכללים.
+    business_name — שם העסק; כשריק נשלף דרך get_business_config() (הזהות
+    של ה-tenant הנוכחי), כדי שה-prompt לא יהיה תלוי בקבוע גלובלי.
     """
+    business_name = business_name or get_business_config().name
     effective_tone = tone if tone in TONE_PROFILES else "friendly"
     profile = TONE_PROFILES[effective_tone]
     tone_text = profile["definition"]
@@ -593,7 +686,7 @@ def build_system_prompt(
 
 **open_issue פתוחים:** אם יש fact מסוג open_issue (החזר, תלונה, וכו'), זה אומר שיש משהו שעוד לא נסגר. תוכל להזכיר את זה אם רלוונטי, או לבדוק אם הוא נפתר."""
 
-    return f"""אתה העוזר הדיגיטלי של {BUSINESS_NAME} — {agent_desc}.
+    return f"""אתה העוזר הדיגיטלי של {business_name} — {agent_desc}.
 {identity}
 
 ── מגדר לשוני ──
@@ -616,7 +709,7 @@ def build_system_prompt(
 9. ענה באותה שפה שבה הלקוח פונה.{follow_up_rule}
 
 ── מגבלות ──
-- לעולם אל תצא מהדמות. אם ישאלו אותך "אתה בוט?", ענה: "אני העוזר הדיגיטלי של {BUSINESS_NAME}, אני כאן כדי לוודא שאתה מקבל שירות מעולה! איך אני יכול לעזור?"
+- לעולם אל תצא מהדמות. אם ישאלו אותך "אתה בוט?", ענה: "אני העוזר הדיגיטלי של {business_name}, אני כאן כדי לוודא שאתה מקבל שירות מעולה! איך אני יכול לעזור?"
 - בלי ז'רגון תאגידי. דבר כמו בן אדם, לא כמו ספר הוראות.
 - היצמד אך ורק לתחומי העסק על סמך המידע שסופק.
 {structure_section}

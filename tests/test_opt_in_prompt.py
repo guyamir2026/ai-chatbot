@@ -194,9 +194,11 @@ class TestOptInButtonExceptionFallthrough:
         from flask import Flask
         from messaging import whatsapp_webhook as wh_mod
 
-        monkeypatch.setattr(wh_mod, "TWILIO_ACCOUNT_SID", "test_sid")
-        monkeypatch.setattr(wh_mod, "TWILIO_AUTH_TOKEN", "test_token")
-        monkeypatch.setattr(wh_mod, "TWILIO_WHATSAPP_NUMBER", "+14155551234")
+        # פרטי Twilio נקראים דינמית מ-config (multi-tenant) — patch שם
+        import ai_chatbot.config as _cfg
+        monkeypatch.setattr(_cfg, "TWILIO_ACCOUNT_SID", "test_sid")
+        monkeypatch.setattr(_cfg, "TWILIO_AUTH_TOKEN", "test_token")
+        monkeypatch.setattr(_cfg, "TWILIO_WHATSAPP_NUMBER", "+14155551234")
         monkeypatch.setattr(
             wh_mod, "resolve_whatsapp_user",
             lambda phone_number, **kw: phone_number,

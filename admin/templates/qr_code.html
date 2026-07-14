@@ -10,10 +10,11 @@
     <div class="card-body">
         <div class="empty-state">
             <i class="bi bi-exclamation-triangle" style="color: var(--warning);"></i>
-            <p>לא הוגדר אף ערוץ.</p>
+            <p>עוד לא חובר ערוץ לעסק.</p>
             <p class="text-small text-muted">
-                יש להגדיר <code>TELEGRAM_BOT_USERNAME</code> או <code>TWILIO_WHATSAPP_NUMBER</code>
-                בפאנל → <a href="{{ url_for('bot_config') }}">הגדרות תשתית</a>.
+                חברו טלגרם או WhatsApp במסך
+                <a href="{{ url_for('bot_config') }}">הגדרות תשתית</a>
+                — וה-QR ייווצר כאן אוטומטית.
             </p>
         </div>
     </div>

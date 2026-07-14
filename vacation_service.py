@@ -25,19 +25,24 @@ logger = logging.getLogger(__name__)
 class VacationService:
     """שירות מרכזי לבדיקת מצב חופשה."""
 
-    # Cache קצר — מונע קריאת DB בכל הודעה (מתעדכן כל 30 שניות)
-    _cache: tuple[float, bool] = (0.0, False)
+    # Cache קצר — מונע קריאת DB בכל הודעה (מתעדכן כל 30 שניות).
+    # מפתח: tenant — חופשה של עסק אחד אינה חופשה של אחר (multi-tenant).
+    _cache: dict[str, tuple[float, bool]] = {}
     _CACHE_TTL = 30
 
     @staticmethod
     def is_active() -> bool:
-        """בדיקה האם מצב חופשה פעיל (עם cache של 30 שניות)."""
+        """בדיקה האם מצב חופשה פעיל (עם cache של 30 שניות, פר-tenant)."""
+        from tenancy import get_current_tenant
+
+        tenant = get_current_tenant()
         now = time.time()
-        if now - VacationService._cache[0] < VacationService._CACHE_TTL:
-            return VacationService._cache[1]
+        hit = VacationService._cache.get(tenant)
+        if hit and now - hit[0] < VacationService._CACHE_TTL:
+            return hit[1]
         vacation = db.get_vacation_mode()
         result = bool(vacation["is_active"])
-        VacationService._cache = (now, result)
+        VacationService._cache[tenant] = (now, result)
         return result
 
     @staticmethod

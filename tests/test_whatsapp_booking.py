@@ -65,7 +65,7 @@ class TestConversationState:
         import time
         state.set_state("user1", "booking_service")
         # הזקנת ה-session ידנית
-        state._sessions["user1"]["updated_at"] = time.time() - 3600
+        state._sessions[("default", "user1")]["updated_at"] = time.time() - 3600
         assert state.get_state("user1") is None
 
     def test_set_state_merges_data(self, state):
@@ -81,7 +81,7 @@ class TestConversationState:
         import time
         state.set_state("user1", "booking_service")
         state.set_state("user2", "booking_date")
-        state._sessions["user1"]["updated_at"] = time.time() - 3600
+        state._sessions[("default", "user1")]["updated_at"] = time.time() - 3600
         cleaned = state.cleanup_expired()
         assert cleaned == 1
         assert state.get_state("user1") is None
@@ -105,8 +105,16 @@ class TestStartBooking:
         assert "תספורת נשים" in result
 
     def test_start_without_services(self, booking, db):
-        """start_booking ללא שירותים — הודעת fallback."""
-        result = booking.start_booking("+972501234567")
+        """start_booking ללא שירותים וכשל RAG מלא — הודעת ה-fallback הסופית.
+
+        ה-fallback הסופי ("אין שירותים מוגדרים") מוחזר רק כשגם נתיב ה-RAG
+        זורק חריגה — לכן הכשל מדומה מפורשות. היסטורית הטסט עבר "במקרה"
+        (ה-RAG זרק בגלל state שדלף מטסטים קודמים) — תלות סדר שנחשפה עם
+        מעבר האינדקסים לנתיבים פר-tenant.
+        """
+        with patch("ai_chatbot.llm.generate_answer",
+                   side_effect=RuntimeError("LLM down")):
+            result = booking.start_booking("+972501234567")
         assert "אין שירותים" in result
 
 

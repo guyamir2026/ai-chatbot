@@ -26,14 +26,20 @@ def db(tmp_path):
 
 @pytest.fixture(autouse=True)
 def _clean_engine_state(tmp_path):
-    """איפוס מצב גלובלי של engine בין טסטים."""
-    with patch("rag.engine.FAISS_INDEX_PATH", tmp_path / "faiss_test"):
+    """איפוס מצב גלובלי של engine בין טסטים.
+
+    מאז המעבר ל-multi-tenant הנתיבים (stale flag, lock, אינדקס) נגזרים
+    בזמן-ריצה מ-tenant_faiss_dir() — ל-tenant של ברירת המחדל זה
+    config.FAISS_INDEX_PATH, ולכן patch על config מספיק.
+    """
+    with patch("ai_chatbot.config.FAISS_INDEX_PATH", tmp_path / "faiss_test"):
         import rag.engine as eng
-        eng._INDEX_STALE_FLAG = tmp_path / "faiss_test" / ".stale"
-        eng._INDEX_STATE_LOCK_FILE = tmp_path / "faiss_test" / ".index_state.lock"
+        from rag.vector_store import reset_vector_store
+        reset_vector_store(all_tenants=True)
         with eng._query_cache_lock:
             eng._query_cache.clear()
         yield
+        reset_vector_store(all_tenants=True)
         with eng._query_cache_lock:
             eng._query_cache.clear()
 
@@ -93,7 +99,7 @@ class TestMaybeClearStale:
         old_token = eng._stale_token()
         # שינוי ה-flag (כאילו קרה שינוי KB חדש בזמן rebuild)
         time.sleep(0.01)
-        eng._INDEX_STALE_FLAG.touch()
+        eng._stale_flag_path().touch()
         eng._maybe_clear_stale(old_token)
         assert eng.is_index_stale()
 
@@ -105,7 +111,7 @@ class TestQueryCache:
     def test_cache_hit_returns_copy(self, tmp_path):
         """retrieve מחזיר עותק מה-cache — שינוי התוצאה לא משפיע על cache."""
         import rag.engine as eng
-        key = ("test query", 5)
+        key = eng._cache_key("test query", 5)
         results = [{"text": "hello", "score": 0.9}]
         with eng._query_cache_lock:
             eng._query_cache[key] = (time.time(), results)
@@ -129,7 +135,7 @@ class TestQueryCache:
 
         with eng._query_cache_lock:
             for i in range(max_size + 5):
-                eng._query_cache[(f"q{i}", 5)] = (now + i, [])
+                eng._query_cache[eng._cache_key(f"q{i}", 5)] = (now + i, [])
 
         assert len(eng._query_cache) == max_size + 5
 
@@ -145,7 +151,7 @@ class TestQueryCache:
         """rebuild מנקה את ה-cache."""
         import rag.engine as eng
         with eng._query_cache_lock:
-            eng._query_cache[("old query", 5)] = (time.time(), [{"text": "old"}])
+            eng._query_cache[eng._cache_key("old query", 5)] = (time.time(), [{"text": "old"}])
 
         # סימולציית הניקוי שקורה ב-rebuild_index
         with eng._query_cache_lock:
@@ -257,7 +263,7 @@ class TestRetrieve:
     def test_cache_hit_skips_embedding(self, tmp_path):
         """cache hit — לא קורא ל-get_embedding."""
         import rag.engine as eng
-        cache_key = ("שאלה חוזרת", 5)
+        cache_key = eng._cache_key("שאלה חוזרת", 5)
         cached_results = [{"text": "cached", "score": 0.9}]
         with eng._query_cache_lock:
             eng._query_cache[cache_key] = (time.time(), cached_results)

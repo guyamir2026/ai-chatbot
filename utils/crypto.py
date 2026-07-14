@@ -123,6 +123,26 @@ def encrypt_field(plaintext: str) -> str:
     return f"{CURRENT_KEY_VERSION}{_KEY_PREFIX_SEPARATOR}{ciphertext}"
 
 
+def encrypt_field_strict(plaintext: str) -> str:
+    """כמו encrypt_field אבל **fail-closed**: בלי מפתח תקין — חריגה.
+
+    לשימוש שכבת הפלטפורמה (control_plane.tenant_secrets): סודות של
+    tenants לעולם לא נשמרים בטקסט גלוי. ה-fallback הרך של encrypt_field
+    קיים רק לתאימות פריסות legacy של שדות ה-tenant הוותיקים.
+    """
+    if not plaintext:
+        return ""
+    if not is_encryption_configured():
+        raise EncryptionConfigError(
+            "SECRETS_ENCRYPTION_KEY לא מוגדר — כתיבת סודות פלטפורמה חסומה "
+            "(fail-closed). ייצור מפתח: "
+            "python -c 'from utils.crypto import generate_new_key; print(generate_new_key())'"
+        )
+    fernet = _get_fernet(CURRENT_KEY_VERSION)
+    ciphertext = fernet.encrypt(plaintext.encode("utf-8")).decode("ascii")
+    return f"{CURRENT_KEY_VERSION}{_KEY_PREFIX_SEPARATOR}{ciphertext}"
+
+
 def decrypt_field(value: str) -> str:
     """מפענח שדה. תומך גם בערכים legacy בטקסט גלוי (בלי prefix).
 

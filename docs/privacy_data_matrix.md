@@ -64,7 +64,7 @@
 | 21 | `business_hours` | config | — | none |
 | 22 | `special_days` | config | — | none |
 | 23 | `vacation_mode` | config | — | none |
-| 24 | `bot_settings` | config (system_prompt) | סקירה אבטחתית | low — אבל יכול להכיל מידע עסקי |
+| 24 | `bot_settings` | config (system_prompt) + זהות עסקית | סקירה אבטחתית | low — אבל יכול להכיל מידע עסקי |
 | 25 | `google_calendar_credentials` | business_owner | סקירה אבטחתית | **high** — refresh_token |
 | 26 | `business_branding` | config | — | none |
 | 27 | `broadcast_messages` | broadcast content | — | low (תוכן יזום) |
@@ -594,6 +594,14 @@ config של ימי פעילות. אין PII.
 **שיקול**: `custom_prompt` ו-`full_system_prompt` עלולים להכיל מידע עסקי רגיש
 (אסטרטגיות, מחירים) — לא PII של משתמש קצה אבל סוד מסחרי. נשלח כל פעם ל-LLM.
 
+**כרטיס ביקור (multi-tenant)**: העמודות `business_phone` / `business_address`
+/ `business_website` מחזיקות את פרטי הקשר של העסק פר-tenant (נצרכות דרך
+`config.get_business_config()`; ריק ⇒ fallback ל-env), ונערכות במסך "כרטיס
+ביקור". זהו PII של **בעל העסק**, לא של משתמש קצה — מוצג ללקוחות ב-vCard/ICS,
+מידע שהעסק בחר לפרסם. **שם העסק אינו כאן** — מקורו `display_name` ב-control
+plane (נקבע בהקמה, מקור-אמת יחיד). לא נכלל ב-export/delete של משתמש קצה;
+נמחק יחד עם קובץ ה-DB של ה-tenant.
+
 ### 25. `google_calendar_credentials`
 
 ❗️**רגיש מבחינת אבטחה**: `refresh_token`, `access_token` של בעל העסק. אם מסד
@@ -683,6 +691,52 @@ service של הדפדפן, ייחודי לכל דפדפן/מכשיר), `p256dh` 
 המנוי מתבטל אוטומטית כש-push service מחזיר 404/410 (משתמש ביטל הרשאה
 בדפדפן). הקוד מוחק בעצמו כשמקבל את הסטטוס הזה. retention: לתמיד עד
 ביטול יזום.
+
+---
+
+### 38—40. טבלאות ה-Control Plane — `tenants`, `tenant_routes`, `tenant_secrets` (platform.db)
+
+> **הקשר**: multi-tenant שלב 2 (ראה `docs/multi_tenant_migration_spec.md`).
+> שלוש הטבלאות יושבות בקובץ SQLite **נפרד** (`DATA_DIR/platform.db`) ששייך
+> למפעיל הפלטפורמה — לא לאף עסק — ומנוהל ב-`control_plane.py` בלבד.
+
+**38. `tenants`** — רישום העסקים על הפלטפורמה: `tenant_id` (slug), `display_name`,
+`status`, `plan`. **אין PII של משתמש קצה**; `display_name` הוא שם עסק (פומבי).
+לא נשלח ל-LLM. גישה: CLI של המפעיל בלבד (`platform_cli`).
+
+**39. `tenant_routes`** — מיפוי מפתחות ראוטינג נכנסים → tenant (מספר Twilio,
+page_id, מפתחות webhook/widget אקראיים). **אין PII של משתמש קצה**. **שיקול
+אבטחה**: מפתחות ה-webhook האקראיים הם de-facto סוד תפעולי (מי שמנחש אותם יכול
+לשלוח בקשות מזויפות ל-endpoint, שעדיין מאומתות חתימה) — נשמרים ב-plaintext כי
+הם משמשים lookup, אבל אקראיים (token_urlsafe 24 בייט) ולא ניתנים לניחוש.
+
+**40. `tenant_secrets`** — ❗️**רגיש מבחינת אבטחה**: טוקני בוט טלגרם, פרטי
+Twilio וכו' פר-tenant. **מוצפן Fernet חובה (fail-closed)** — בניגוד לשדות
+ה-legacy, כאן `encrypt_field_strict` זורק חריגה אם `SECRETS_ENCRYPTION_KEY`
+לא מוגדר, כך שסוד פלטפורמה לעולם לא נכתב בטקסט גלוי. ערכים לעולם לא מודפסים
+(CLI מציג שמות בלבד). לא נשלח ל-LLM. retention: עד מחיקת ה-tenant
+(`ON DELETE CASCADE`).
+
+**42. `platform_meta` (platform.db)** — key-value תפעולי של הפלטפורמה
+(‏last-run של job הגיבוי וה-keep-alive). **אין PII**. לא נשלח ל-LLM.
+retention: לתמיד (מספר שורות קבוע). **גיבויים** (`backup_service`):
+העתקים עקביים של קבצי ה-tenants + `platform.db` תחת `BACKUP_DIR`. הם
+מכילים את **כל** ה-PII של קבצי המקור — ולכן יורשים את אותה רמת רגישות:
+דורשים אותה הגנת-גישה כמו ה-DB החי (הרשאות קובץ, ובעת העלאה ל-object
+storage — bucket פרטי + הצפנה בצד השרת). ה-retention שלהם
+(`BACKUP_RETENTION_DAYS`, ברירת מחדל 14) נכנס לחישוב מדיניות השמירה.
+
+**41. `admin_users` (platform.db)** — **PII של בעלי עסקים (לקוחות ה-SaaS),
+לא של משתמשי קצה**: `email` (מזהה ישיר), `display_name`, `password_hash`
+(‏werkzeug), `role`, `tenant_id`, `last_login_at`. **שיקולי אבטחה**:
+(א) ה-hash לעולם לא מוחזר מ-API — ‏`verify_admin_login` ו-`list_admin_users`
+מסירים אותו לפני החזרה (דפוס קריטי #6); (ב) אימות מריץ בדיקת סיסמה גם
+כשה-email לא קיים — בלי timing oracle על קיום חשבון; (ג) אין self-registration
+— משתמשים נוצרים רק ע"י מפעיל הפלטפורמה דרך ה-CLI (אין וקטור auto-admin,
+דפוס קריטי #3); (ד) ‏email לא נכתב ללוגים — האודיט מתעד role+tenant בלבד
+(דפוס #7). לא נשלח ל-LLM. retention: עד מחיקה יזומה ע"י המפעיל או מחיקת
+ה-tenant (‏`ON DELETE CASCADE` על owner). זכויות עיון/מחיקה של בעל העסק —
+מול המפעיל ישירות (יחסי ספק-לקוח, מוסדר ב-DPA).
 
 ---
 

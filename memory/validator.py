@@ -24,7 +24,7 @@ from datetime import datetime, timezone
 from typing import Optional
 
 from ai_chatbot import database as db
-from ai_chatbot.config import BUSINESS_ID
+from ai_chatbot import config as _config
 from memory import extractor
 
 logger = logging.getLogger(__name__)
@@ -180,7 +180,7 @@ def _empty_save_counts() -> dict:
 
 
 def save_extractions(
-    extractions: list[dict], user_id: str, business_id: str = BUSINESS_ID,
+    extractions: list[dict], user_id: str, business_id: str = "",
 ) -> dict:
     """שומר extractions ל-DB לפי action. מחזיר counts לפי תוצאה.
 
@@ -196,6 +196,9 @@ def save_extractions(
     fact חדש active בלי קישור נכנס. הפתרון: מעקב פנימי targeted_ids שדוחה
     את השני (CLAUDE.md atomicity-של-linked-field — אסור לדרוס קישורים).
     """
+    # ברירת המחדל נפתרת בזמן-ריצה (לא בזמן def) — כלל ה-multi-tenant:
+    # ערך שנקבע ב-default arg קופא בזמן ה-import ולא ניתן להחלפה פר-tenant.
+    business_id = business_id or _config.BUSINESS_ID
     counts = _empty_save_counts()
     # קבוצה של ה-existing fact ids שכבר היו target של confirm/supersede
     # בלולאה הזו. מונע orphans כשה-LLM מחזיר שני actions על אותו fact.

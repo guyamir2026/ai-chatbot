@@ -24,24 +24,48 @@ except ImportError:
     _fcntl = None
 
 from ai_chatbot import database as db
-from ai_chatbot.config import FAISS_INDEX_PATH
+from tenancy import get_current_tenant, tenant_faiss_dir
 from ai_chatbot.rag.chunker import create_chunks_for_entry
 from ai_chatbot.rag.embeddings import get_embedding, get_embeddings_batch
 from ai_chatbot.rag.vector_store import get_vector_store, reset_vector_store
 
 logger = logging.getLogger(__name__)
 
-_INDEX_STALE_FLAG: Path = FAISS_INDEX_PATH / ".stale"
-_INDEX_STATE_LOCK_FILE: Path = FAISS_INDEX_PATH / ".index_state.lock"
-_REBUILD_LOCK = threading.RLock()
+# נתיבי דגלי המצב של האינדקס — פר-tenant (נגזרים בכל קריאה, לא קבועים)
+def _stale_flag_path() -> Path:
+    return Path(tenant_faiss_dir()) / ".stale"
+
+
+def _state_lock_path() -> Path:
+    return Path(tenant_faiss_dir()) / ".index_state.lock"
+
+
+# מנעול rebuild פר-tenant — rebuild של עסק אחד לא חוסם retrieve של אחר
+_rebuild_locks: dict[str, threading.RLock] = {}
+_rebuild_locks_guard = threading.Lock()
+
+
+def _get_rebuild_lock() -> threading.RLock:
+    tenant = get_current_tenant()
+    with _rebuild_locks_guard:
+        lock = _rebuild_locks.get(tenant)
+        if lock is None:
+            lock = threading.RLock()
+            _rebuild_locks[tenant] = lock
+        return lock
 
 # Query cache — מונע embedding + FAISS search חוזרים לאותה שאלה בדיוק.
 # TTL של 5 דקות; מתרוקן אוטומטית ב-rebuild.
 # מוגבל ל-_QUERY_CACHE_MAX_SIZE כדי למנוע גדילת זיכרון בלתי מוגבלת.
 _QUERY_CACHE_TTL = 300  # שניות
 _QUERY_CACHE_MAX_SIZE = 256
-_query_cache: dict[tuple[str, int], tuple[float, list[dict]]] = {}
+# המפתח כולל את ה-tenant — אותה שאלה משני עסקים לעולם לא חולקת תוצאה
+_query_cache: dict[tuple[str, str, int], tuple[float, list[dict]]] = {}
 _query_cache_lock = threading.Lock()
+
+
+def _cache_key(query: str, top_k: int) -> tuple[str, str, int]:
+    return (get_current_tenant(), query, top_k)
 
 
 @contextmanager
@@ -49,8 +73,9 @@ def _index_state_lock():
     """
     Cross-process lock for reading/writing the index state files.
     """
-    FAISS_INDEX_PATH.mkdir(parents=True, exist_ok=True)
-    f = _INDEX_STATE_LOCK_FILE.open("a+", encoding="utf-8")
+    faiss_dir = Path(tenant_faiss_dir())
+    faiss_dir.mkdir(parents=True, exist_ok=True)
+    f = _state_lock_path().open("a+", encoding="utf-8")
     try:
         if _fcntl:
             try:
@@ -69,7 +94,7 @@ def _index_state_lock():
 
 def _stale_token() -> int | None:
     try:
-        return _INDEX_STALE_FLAG.stat().st_mtime_ns
+        return _stale_flag_path().stat().st_mtime_ns
     except FileNotFoundError:
         return None
     except OSError:
@@ -88,28 +113,28 @@ def _maybe_clear_stale(start_token: int | None) -> None:
         end_token = _stale_token()
         if end_token == start_token:
             try:
-                _INDEX_STALE_FLAG.unlink()
+                _stale_flag_path().unlink()
             except FileNotFoundError:
                 pass
 
 
 def mark_index_stale() -> None:
     with _index_state_lock():
-        FAISS_INDEX_PATH.mkdir(parents=True, exist_ok=True)
-        _INDEX_STALE_FLAG.touch(exist_ok=True)
+        Path(tenant_faiss_dir()).mkdir(parents=True, exist_ok=True)
+        _stale_flag_path().touch(exist_ok=True)
 
 
 def clear_index_stale() -> None:
     with _index_state_lock():
         try:
-            _INDEX_STALE_FLAG.unlink()
+            _stale_flag_path().unlink()
         except FileNotFoundError:
             pass
 
 
 def is_index_stale() -> bool:
     with _index_state_lock():
-        return _INDEX_STALE_FLAG.exists()
+        return _stale_flag_path().exists()
 
 
 def rebuild_index(force_full: bool = False):
@@ -134,8 +159,8 @@ def rebuild_index(force_full: bool = False):
     5. Build the FAISS index from all embeddings (reused + new).
     6. Save changed chunks to the database and index to disk.
     """
-    with _REBUILD_LOCK:
-        logger.info("Rebuilding RAG index...")
+    with _get_rebuild_lock():
+        logger.info("Rebuilding RAG index (tenant=%s)...", get_current_tenant())
         with _index_state_lock():
             start_stale_token = _stale_token()
 
@@ -310,9 +335,12 @@ def rebuild_index(force_full: bool = False):
             db.save_chunks(entry_id, entry_chunks)
 
         _maybe_clear_stale(start_stale_token)
-        # ניקוי query cache אחרי rebuild — תוצאות ישנות כבר לא רלוונטיות
+        # ניקוי query cache אחרי rebuild — רק של ה-tenant הנוכחי; תוצאות
+        # של עסקים אחרים עדיין תקפות
+        _tenant = get_current_tenant()
         with _query_cache_lock:
-            _query_cache.clear()
+            for k in [k for k in _query_cache if k[0] == _tenant]:
+                del _query_cache[k]
         logger.info("RAG index rebuild complete!")
 
 
@@ -328,7 +356,7 @@ def retrieve(query: str, top_k: int = None) -> list[dict]:
         List of relevant chunk dicts with text, category, title, and score.
     """
     if is_index_stale():
-        with _REBUILD_LOCK:
+        with _get_rebuild_lock():
             if is_index_stale():
                 logger.info("RAG index marked stale. Rebuilding before retrieval...")
                 rebuild_start = time.time()
@@ -345,7 +373,7 @@ def retrieve(query: str, top_k: int = None) -> list[dict]:
 
     from ai_chatbot.config import RAG_TOP_K
     effective_top_k = top_k if top_k is not None else RAG_TOP_K
-    cache_key = (query, effective_top_k)
+    cache_key = _cache_key(query, effective_top_k)
 
     # בדיקת cache — אם אותה שאלה כבר נשאלה לאחרונה
     with _query_cache_lock:

@@ -86,9 +86,9 @@ class TestCheckRateLimit:
 class TestRecordMessage:
     def test_records_timestamp(self):
         record_message("user_x")
-        assert len(_user_timestamps["user_x"]) == 1
+        assert len(_user_timestamps[("default", "user_x")]) == 1
 
     def test_multiple_records(self):
         for _ in range(5):
             record_message("user_y")
-        assert len(_user_timestamps["user_y"]) == 5
+        assert len(_user_timestamps[("default", "user_y")]) == 5

@@ -24,9 +24,9 @@ def db(tmp_path):
 def _reset_cache():
     """איפוס cache של VacationService בין טסטים."""
     from vacation_service import VacationService
-    VacationService._cache = (0.0, False)
+    VacationService._cache = {}
     yield
-    VacationService._cache = (0.0, False)
+    VacationService._cache = {}
 
 
 # ── Service Logic ───────────────────────────────────────────────────────────
@@ -40,7 +40,7 @@ class TestVacationIsActive:
     def test_active_when_enabled(self, db):
         from vacation_service import VacationService
         db.update_vacation_mode(True)
-        VacationService._cache = (0.0, False)  # reset cache
+        VacationService._cache = {}  # reset cache
         assert VacationService.is_active()
 
     def test_cache_prevents_repeated_db_calls(self, db):
@@ -54,7 +54,7 @@ class TestVacationIsActive:
         from vacation_service import VacationService
         VacationService.is_active()  # ממלא cache
         # מזקין את ה-cache
-        VacationService._cache = (time.time() - 60, False)
+        VacationService._cache = {"default": (time.time() - 60, False)}
         db.update_vacation_mode(True)
         assert VacationService.is_active()  # cache פג — קורא DB
 
@@ -144,7 +144,7 @@ class TestVacationGuardBooking:
         from vacation_service import vacation_guard_booking, VacationService
         from telegram.ext import ConversationHandler
         db.update_vacation_mode(True)
-        VacationService._cache = (0.0, False)
+        VacationService._cache = {}
 
         inner = AsyncMock()
         guarded = vacation_guard_booking(inner)
@@ -163,7 +163,7 @@ class TestVacationGuardBooking:
         """בזמן live chat — מעביר ל-handler גם אם חופשה פעילה."""
         from vacation_service import vacation_guard_booking, VacationService
         db.update_vacation_mode(True)
-        VacationService._cache = (0.0, False)
+        VacationService._cache = {}
 
         inner = AsyncMock(return_value="ok")
         guarded = vacation_guard_booking(inner)
@@ -179,7 +179,7 @@ class TestVacationGuardAgent:
     async def test_blocks_when_active(self, db):
         from vacation_service import vacation_guard_agent, VacationService
         db.update_vacation_mode(True)
-        VacationService._cache = (0.0, False)
+        VacationService._cache = {}
 
         inner = AsyncMock()
         guarded = vacation_guard_agent(inner)

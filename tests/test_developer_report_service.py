@@ -21,7 +21,7 @@ def _mock_config():
          patch("developer_report_service.SMTP_PORT", 465), \
          patch("developer_report_service.SMTP_USER", ""), \
          patch("developer_report_service.SMTP_PASSWORD", ""), \
-         patch("developer_report_service.BUSINESS_NAME", "מספרת דנה"):
+         patch("config.BUSINESS_NAME", "מספרת דנה"):
         yield
 
 

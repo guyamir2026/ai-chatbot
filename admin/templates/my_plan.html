@@ -24,12 +24,17 @@
             <div>
                 <div style="font-size: 0.85rem; opacity: 0.65;">ערוץ תקשורת</div>
                 <div style="font-size: 1.1rem; font-weight: 600; margin-top: 0.2rem;">
-                    {% if plan_definition.channel == "telegram" %}
+                    {# הערוץ הוא מאפיין של העסק (לא של החבילה) — נקבע
+                       אוטומטית בחיבור הערוץ הראשון במסך הגדרות תשתית #}
+                    {% set my_channel = tenant_channel or detected_channel %}
+                    {% if my_channel == "telegram" %}
                         <i class="bi bi-telegram"></i> Telegram
-                    {% elif plan_definition.channel == "whatsapp" %}
+                    {% elif my_channel == "whatsapp" %}
                         <i class="bi bi-whatsapp"></i> WhatsApp
                     {% else %}
-                        {{ plan_definition.channel }}
+                        <span style="font-weight: 400; font-size: 0.95rem;">
+                            טרם הוגדר — ייקבע אוטומטית עם חיבור הערוץ הראשון
+                        </span>
                     {% endif %}
                 </div>
             </div>

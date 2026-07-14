@@ -162,6 +162,13 @@ def run_migrations(conn) -> None:
     # ─── bot_settings: פרומפט מערכת מלא (override) ─────────────────────────
     _ensure_column(conn, "bot_settings", "full_system_prompt", "TEXT DEFAULT ''")
 
+    # ─── bot_settings: כרטיס ביקור פר-tenant (טלפון/כתובת/אתר) ────────────
+    # ריק = fallback ל-env (legacy). נצרך דרך config.get_business_config().
+    # שם העסק אינו כאן — מקורו display_name ב-control plane (הקמת ה-tenant).
+    _ensure_column(conn, "bot_settings", "business_phone", "TEXT DEFAULT ''")
+    _ensure_column(conn, "bot_settings", "business_address", "TEXT DEFAULT ''")
+    _ensure_column(conn, "bot_settings", "business_website", "TEXT DEFAULT ''")
+
     # ─── special_days: סימון מחיקה ע"י משתמש (soft delete) כדי שהסידור לא יחזיר חגים שנמחקו
     _ensure_column(conn, "special_days", "user_removed", "INTEGER DEFAULT 0")
 
@@ -812,6 +819,8 @@ def run_migrations(conn) -> None:
                 id                INTEGER PRIMARY KEY CHECK(id = 1),
                 plan              TEXT NOT NULL DEFAULT 'premium'
                                       CHECK(plan IN ('basic', 'advanced', 'premium')),
+                channel           TEXT NOT NULL DEFAULT ''
+                                      CHECK(channel IN ('', 'telegram', 'whatsapp')),
                 features_json     TEXT NOT NULL DEFAULT '{}',
                 plan_started_at   TEXT NOT NULL DEFAULT (datetime('now')),
                 plan_ends_at      TEXT,
@@ -822,6 +831,14 @@ def run_migrations(conn) -> None:
         """)
         conn.execute("INSERT OR IGNORE INTO subscription (id) VALUES (1)")
         logger.info("Created subscription table via migration (default plan=premium)")
+
+    # ─── subscription: ערוץ פר-tenant (multi-tenant) ──────────────────────
+    # '' = טרם נקבע (שני מקטעי הערוצים פתוחים); נקבע אוטומטית בחיבור
+    # הערוץ הראשון וננעל עד שחרור ע"י מנהל הפלטפורמה. ראה feature_flags.
+    _ensure_column(
+        conn, "subscription", "channel",
+        "TEXT NOT NULL DEFAULT '' CHECK(channel IN ('', 'telegram', 'whatsapp'))",
+    )
 
     # plan_history — audit trail לכל שינוי חבילה / override פיצ'ר.
     # נשמר לתמיד (לא נמחק ב-delete_user_data כי זה לא PII).

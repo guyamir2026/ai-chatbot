@@ -28,6 +28,12 @@ services:
       - key: DATA_DIR
         value: /var/data
 
+      # Multi-tenant fail-loud: כל נתיב ריצה חייב לקבוע tenant context.
+      # בלי זה, נתיב ששכח context היה מגיש בשקט את ה-DB של ה-tenant של
+      # ברירת המחדל (סיכון בידוד). ראה tenancy.py + tests/test_tenancy_strict.py.
+      - key: TENANCY_STRICT
+        value: "true"
+
       # Required for RAG/LLM features
       - key: OPENAI_API_KEY
         sync: false

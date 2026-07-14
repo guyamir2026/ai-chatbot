@@ -1,32 +1,68 @@
 """
-Bot State — מודול משותף לשמירת רפרנסים לאובייקט הבוט ו-event loop.
+Bot State — רפרנסים לאובייקטי ה-Bot ול-event loop המשותף.
 
-כש-main.py מפעיל את הבוט, הוא מאחסן כאן את ה-Bot ואת ה-event loop.
-פאנל האדמין (שרץ ב-thread נפרד) משתמש בהם לשליחת broadcast.
+multi-tenant שלב 2: במקום Bot יחיד — registry ‏tenant → Bot. הבוט
+ה-legacy (main.py / polling) נרשם תחת ה-tenant של ברירת המחדל דרך
+set_bot; בוטים של tenants נרשמים ע"י bot_registry עם האתחול העצל.
+
+ה-event loop אחד לכולם — הלולאה שבה חיות כל האפליקציות (bot loop).
+פאנל האדמין (שרץ ב-thread נפרד) משתמש ב-get_bot()+get_loop() לשליחת
+broadcast דרך run_coroutine_threadsafe.
 """
 
 import asyncio
+import threading
 from typing import Optional
 
 from telegram import Bot
 
-# מאותחל ע"י telegram_bot.py ב-post_init
-_bot: Optional[Bot] = None
+from tenancy import DEFAULT_TENANT, get_current_tenant
+
+_bots: dict[str, Bot] = {}
 _loop: Optional[asyncio.AbstractEventLoop] = None
+_guard = threading.Lock()
 
 
 def set_bot(bot: Bot, loop: asyncio.AbstractEventLoop) -> None:
-    """שמירת רפרנס לבוט ול-event loop (נקרא מ-post_init של הבוט)."""
-    global _bot, _loop
-    _bot = bot
-    _loop = loop
+    """רישום הבוט ה-legacy (ברירת המחדל) + ה-event loop המשותף.
+
+    נקרא מ-post_init של הבוט הראשי — שומר על החתימה ההיסטורית.
+    """
+    global _loop
+    with _guard:
+        _bots[DEFAULT_TENANT] = bot
+        _loop = loop
+
+
+def register_tenant_bot(tenant_id: str, bot: Bot) -> None:
+    """רישום Bot של tenant (נקרא מ-bot_registry על ה-bot loop)."""
+    with _guard:
+        _bots[tenant_id] = bot
+
+
+def unregister_tenant_bot(tenant_id: str) -> None:
+    with _guard:
+        _bots.pop(tenant_id, None)
 
 
 def get_bot() -> Optional[Bot]:
-    """קבלת אובייקט ה-Bot (או None אם הבוט לא פעיל)."""
-    return _bot
+    """ה-Bot של ה-tenant הנוכחי (או None אם לא רשום / לא אותחל עדיין).
+
+    אין fallback לבוט של ברירת המחדל עבור tenant אחר — שליחה בזהות
+    בוט של עסק אחר אסורה.
+    """
+    with _guard:
+        return _bots.get(get_current_tenant())
 
 
 def get_loop() -> Optional[asyncio.AbstractEventLoop]:
-    """קבלת ה-event loop של הבוט (או None אם הבוט לא פעיל)."""
+    """ה-event loop המשותף של הבוטים (או None אם אף בוט לא פעיל)."""
     return _loop
+
+
+def reset_state() -> None:
+    """איפוס ל-tests בלבד."""
+    global _loop
+    with _guard:
+        _bots.clear()
+        _loop = None

@@ -34,7 +34,15 @@ logger = logging.getLogger(__name__)
 # Using deque for efficient left-pops when pruning old entries.
 # OrderedDict — LRU eviction: כשנגמר מקום, מוחקים את המשתמשים הכי ישנים.
 _MAX_TRACKED_USERS = 10_000
-_user_timestamps: OrderedDict[str, deque[float]] = OrderedDict()
+# המפתח: (tenant, user_id) — אותו לקוח מול שני עסקים סופר בנפרד,
+# והמגבלות לא מתערבבות בין tenants (multi-tenant שלב 2).
+_user_timestamps: OrderedDict[tuple[str, str], deque[float]] = OrderedDict()
+
+
+def _bucket_key(user_id: str) -> tuple[str, str]:
+    from tenancy import get_current_tenant
+
+    return (get_current_tenant(), user_id)
 
 # Sliding window definitions: (window_seconds, max_messages, response_message)
 _WINDOWS = [
@@ -74,15 +82,16 @@ def check_rate_limit(user_id: str) -> str | None:
     :func:`record_message` after confirming the message will be processed.
     """
     now = time.time()
-    if user_id not in _user_timestamps:
-        _user_timestamps[user_id] = deque()
+    key = _bucket_key(user_id)
+    if key not in _user_timestamps:
+        _user_timestamps[key] = deque()
         # LRU eviction — גם ב-check, לא רק ב-record, כדי שמשתמשים rate-limited לא יגדילו את ה-dict ללא גבול
         while len(_user_timestamps) > _MAX_TRACKED_USERS:
             _user_timestamps.popitem(last=False)
     else:
         # LRU — מזיז את המשתמש לסוף (הכי אחרון)
-        _user_timestamps.move_to_end(user_id)
-    timestamps = _user_timestamps[user_id]
+        _user_timestamps.move_to_end(key)
+    timestamps = _user_timestamps[key]
     _prune(timestamps, now)
 
     # bisect על רשימה ממוינת (deque ממוינת כי תמיד מוסיפים timestamp עולה)
@@ -103,12 +112,13 @@ def check_rate_limit(user_id: str) -> str | None:
 
 def record_message(user_id: str) -> None:
     """Record a new message timestamp for *user_id*."""
-    if user_id not in _user_timestamps:
-        _user_timestamps[user_id] = deque()
+    key = _bucket_key(user_id)
+    if key not in _user_timestamps:
+        _user_timestamps[key] = deque()
         # LRU eviction — מוחקים את המשתמש הכי ישן אם חרגנו מהמגבלה
         while len(_user_timestamps) > _MAX_TRACKED_USERS:
             _user_timestamps.popitem(last=False)
-    _user_timestamps[user_id].append(time.time())
+    _user_timestamps[key].append(time.time())
 
 
 # ── הודעה למשתמש חסום ──────────────────────────────────────────────────────

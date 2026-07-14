@@ -48,7 +48,8 @@ _scheduler_stop = threading.Event()
 # advisory lock ב-DB (טבלה ייעודית `scheduler_locks(user_id PK,
 # locked_at)` עם TTL). כיום deployment הוא single-process על Render
 # Web Service, ה-set מספיק.
-_in_progress: set[str] = set()
+# המפתח: (tenant, user_id) — אותו לקוח אצל שני עסקים = שתי עבודות נפרדות.
+_in_progress: set[tuple[str, str]] = set()
 _lock = threading.Lock()
 
 
@@ -100,11 +101,28 @@ def _scheduler_loop() -> None:
     """try/except חיצוני — כשל ב-cycle אחד לא עוצר את הלולאה.
     wait() במקום sleep() כדי שכיבוי יהיה מיידי (event.set() מעיר אותו).
     """
+    from tenancy import tenant_context
+
     while not _scheduler_stop.is_set():
+        # כל ה-tenants הפעילים, כל אחד ב-context משלו; כשל אצל אחד לא
+        # עוצר את השאר (כלל לולאות I/O ב-CLAUDE.md).
         try:
-            _process_due_users()
+            from control_plane import list_schedulable_tenant_ids
+
+            tenant_ids = list_schedulable_tenant_ids()
         except Exception:
-            logger.exception("memory.background: cycle failed")
+            logger.exception("memory.background: listing tenants failed")
+            tenant_ids = []
+        for tenant_id in tenant_ids:
+            if _scheduler_stop.is_set():
+                break
+            try:
+                with tenant_context(tenant_id):
+                    _process_due_users()
+            except Exception:
+                logger.exception(
+                    "memory.background: cycle failed (tenant=%s)", tenant_id,
+                )
         _scheduler_stop.wait(_POLL_INTERVAL)
 
 
@@ -140,13 +158,17 @@ def _process_due_users() -> None:
     )
     counts["scanned"] = len(user_ids)
 
+    from tenancy import get_current_tenant
+
+    _tenant = get_current_tenant()
     for user_id in user_ids:
         # Lock: אם משתמש בעיבוד מ-cycle קודם (תקוע על LLM ארוך?), דלג.
+        _key = (_tenant, user_id)
         with _lock:
-            if user_id in _in_progress:
+            if _key in _in_progress:
                 counts["skipped_locked"] += 1
                 continue
-            _in_progress.add(user_id)
+            _in_progress.add(_key)
 
         try:
             # שלב 6.3 — idle check **לפני** טעינת ההודעות וקריאת LLM.
@@ -203,7 +225,7 @@ def _process_due_users() -> None:
             )
         finally:
             with _lock:
-                _in_progress.discard(user_id)
+                _in_progress.discard(_key)
 
     duration = time.monotonic() - start_ts
     logger.info(

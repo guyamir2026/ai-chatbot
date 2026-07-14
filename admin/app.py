@@ -39,8 +39,10 @@ from flask import (
 )
 
 from flask_wtf.csrf import CSRFProtect, CSRFError
+from werkzeug.middleware.proxy_fix import ProxyFix
 from werkzeug.security import check_password_hash
 
+from tenancy import DEFAULT_TENANT, set_current_tenant, reset_current_tenant
 from ai_chatbot import database as db
 from ai_chatbot.config import (
     ADMIN_USERNAME,
@@ -49,13 +51,9 @@ from ai_chatbot.config import (
     ADMIN_SECRET_KEY,
     ADMIN_HOST,
     ADMIN_PORT,
-    BUSINESS_NAME,
     BUSINESS_ID,
     TELEGRAM_BOT_TOKEN,
     TELEGRAM_BOT_USERNAME,
-    BUSINESS_PHONE,
-    BUSINESS_ADDRESS,
-    BUSINESS_WEBSITE,
     DEVELOPER_PASSWORD,
     DEMO_MODE,
     DEMO_CTA_WHATSAPP,
@@ -65,6 +63,7 @@ from ai_chatbot.config import (
     FOLLOW_UP_ENABLED,
     WEBHOOK_SECRET,
     build_system_prompt,
+    get_business_config,
 )
 from ai_chatbot.rag.engine import rebuild_index, mark_index_stale, is_index_stale, retrieve
 from ai_chatbot import feature_flags
@@ -687,8 +686,55 @@ def create_admin_app() -> Flask:
         template_folder="templates",
         static_folder="static",
     )
+    # מאחורי ה-proxy של Render — בלי זה request.url חוזר http:// והקוד
+    # נאלץ לתקן ידנית X-Forwarded-Proto בכל מקום (ראה whatsapp_webhook).
+    # רמת trust אחת בלבד (proxy יחיד של הפלטפורמה).
+    app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1)
     app.secret_key = ADMIN_SECRET_KEY
     app.config["PERMANENT_SESSION_LIFETIME"] = timedelta(days=30)
+
+    # ── Tenant context (multi-tenant שלב 1) ─────────────────────────────
+    # כל בקשת HTTP רצה תחת tenant מוגדר. כרגע תמיד DEFAULT_TENANT; בשלב 2
+    # ה-resolve יהיה לפי ה-session (אדמין) או מפתח ראוטינג (webhooks).
+    @app.before_request
+    def _bind_tenant_context():
+        # ברירת המחדל — ה-tenant ה-legacy. session של בעל עסק (tenant_id)
+        # או של platform admin במצב "פעל-כ" (acting_tenant) קובע אחרת.
+        # ה-webhooks והנתיבים הציבוריים עושים resolve משלהם ועוטפים
+        # ב-tenant_context פנימי — ה-binding כאן לא משפיע עליהם.
+        tenant = DEFAULT_TENANT
+        chosen = session.get("tenant_id") or session.get("acting_tenant")
+        if chosen:
+            from control_plane import get_tenant_status_cached
+            from tenancy import InvalidTenantSlug, validate_tenant_id
+
+            try:
+                validate_tenant_id(chosen)
+                status = get_tenant_status_cached(chosen)
+            except InvalidTenantSlug:
+                status = None
+            except Exception:
+                logger.error("tenant status check failed", exc_info=True)
+                status = None
+            if status == "active":
+                tenant = chosen
+            else:
+                # ה-tenant הושעה/נמחק בזמן שה-session חי — ניתוק מסודר.
+                logger.warning("session bound to inactive tenant — logging out")
+                session.clear()
+                flash("החשבון אינו פעיל כרגע. פנו לתמיכה.", "warning")
+                return redirect(url_for("login"))
+        g._tenant_token = set_current_tenant(tenant)
+
+    @app.teardown_request
+    def _release_tenant_context(exc):
+        token = g.pop("_tenant_token", None)
+        if token is not None:
+            try:
+                reset_current_tenant(token)
+            except Exception:
+                # לא מפילים teardown — רק מתעדים (Exceptions תמיד ללוג)
+                logger.error("failed to reset tenant context", exc_info=True)
 
     csrf = CSRFProtect()
     csrf.init_app(app)
@@ -720,12 +766,43 @@ def create_admin_app() -> Flask:
         lambda v: FACT_STATUS_TRANSLATION.get(v, v)
     )
 
+    def _detect_tenant_channel():
+        """ערוץ התצוגה של ה-tenant הנוכחי — לתצוגה/preview כשהערוץ עדיין
+        לא ננעל (feature_flags.get_channel ריק).
+
+        ל-tenant של ברירת המחדל (legacy): זיהוי לפי env (detect_active_channel).
+        ל-tenant בפלטפורמה: לפי הסודות שהוגדרו לו ב-control plane — כי
+        ה-credentials שלו **אינם ב-env** בכלל, ולכן detect_active_channel
+        (שקורא env) חסר משמעות עבורו.
+        """
+        from tenancy import DEFAULT_TENANT, get_current_tenant
+
+        tenant = get_current_tenant()
+        if tenant == DEFAULT_TENANT:
+            return detect_active_channel() or ""
+        try:
+            import control_plane as _cp
+
+            names = set(_cp.list_tenant_secret_names(tenant))
+        except Exception:
+            logger.error("detect tenant channel failed", exc_info=True)
+            return ""
+        if "telegram_bot_token" in names:
+            return "telegram"
+        if {"twilio_account_sid", "twilio_auth_token",
+                "twilio_whatsapp_number"} <= names:
+            return "whatsapp"
+        return ""
+
     @app.context_processor
     def _inject_globals():
         # שמירת user_notes ב-g כדי לא לבצע שאילתת DB בכל render_template()
         if not hasattr(g, '_user_notes'):
             g._user_notes = db.get_all_user_notes()
         return {
+            # הזהות העסקית נשלפת פר-בקשה (multi-tenant שלב 1) — במקום
+            # kwarg ידני בכל render_template.
+            "business_name": get_business_config().name,
             "rag_index_stale": is_index_stale(),
             "user_notes": g._user_notes,
             "today_iso": datetime.now(ISRAEL_TZ).date().isoformat(),
@@ -795,12 +872,28 @@ def create_admin_app() -> Flask:
                 )
                 return None
 
+        # הערוץ של ה-tenant (נעילה אוטומטית) — ריק = טרם נקבע / tenant ברירת
+        # המחדל. detected_channel הוא fallback תצוגתי בלבד (env), לעולם לא
+        # משמש לנעילת מקטעים — רק tenant_channel נועל.
+        try:
+            tenant_channel = feature_flags.get_channel()
+        except Exception:
+            logger.error("get_channel() failed in template context", exc_info=True)
+            tenant_channel = ""
+        try:
+            detected_channel = _detect_tenant_channel()
+        except Exception:
+            logger.error("_detect_tenant_channel() failed in template context", exc_info=True)
+            detected_channel = ""
+
         return {
             "has_feature": _safe_has_feature,
             "current_plan": (g._subscription_row or {}).get("plan", plans_config.DEFAULT_PLAN),
             "plan_definition": plans_config.get_plan_definition(
                 (g._subscription_row or {}).get("plan", plans_config.DEFAULT_PLAN)
             ),
+            "tenant_channel": tenant_channel,
+            "detected_channel": detected_channel,
             "plan_display_names": {
                 key: cfg["display_name"] for key, cfg in plans_config.PLANS.items()
             },
@@ -1132,8 +1225,8 @@ def create_admin_app() -> Flask:
     def pwa_manifest():
         """Web App Manifest — מתאר את האפליקציה לדפדפן."""
         manifest = {
-            "name": f"{BUSINESS_NAME} — פאנל ניהול",
-            "short_name": BUSINESS_NAME[:12] or "פאנל",
+            "name": f"{get_business_config().name} — פאנל ניהול",
+            "short_name": get_business_config().name[:12] or "פאנל",
             "description": "פאנל ניהול לבוט עסקי",
             "start_url": "/",
             "scope": "/",
@@ -1279,13 +1372,44 @@ self.addEventListener('notificationclick', (event) => {
         resp.headers["X-Content-Type-Options"] = "nosniff"
         return resp
 
+    def _bind_public_tenant(tenant_id):
+        """resolve של tenant לנתיב ציבורי (/t/<slug>/...).
+
+        מחזיר context manager או None (⇒ 404). לא מבחינים כלפי חוץ בין
+        slug לא-חוקי, tenant לא-רשום ו-tenant מושעה — הכול 404, כדי לא
+        לחשוף מצב פנימי לנתיב ציבורי.
+        """
+        from tenancy import InvalidTenantSlug, tenant_context, validate_tenant_id
+        import control_plane as _cp
+
+        try:
+            validate_tenant_id(tenant_id)
+        except InvalidTenantSlug:
+            return None
+        row = _cp.get_tenant(tenant_id)
+        if row is None or row["status"] != "active":
+            return None
+        return tenant_context(tenant_id)
+
     @app.route("/p/<page_id>")
-    def public_page(page_id):
+    @app.route("/t/<tenant_id>/p/<page_id>", endpoint="public_page_tenant")
+    def public_page(page_id, tenant_id=None):
         """עמוד תשובה ציבורי — מגיש תוכן HTML לתשובות ארוכות מ-WhatsApp.
 
         מוגן ב-rate limit פר-IP כדי למנוע ניחוש מסיבי של slugs (גם עם
         128 ביט אנטרופיה זה הגנה בעומק). headers מונעים אינדוקס וcache.
+        הנתיב עם /t/<slug>/ מגיש את העמוד מה-DB של אותו tenant.
         """
+        if tenant_id is not None:
+            ctx = _bind_public_tenant(tenant_id)
+            if ctx is None:
+                resp = app.make_response(("", 404))
+                return _apply_public_page_security_headers(resp)
+            with ctx:
+                return _public_page_impl(page_id)
+        return _public_page_impl(page_id)
+
+    def _public_page_impl(page_id):
         client_ip = request.remote_addr or "unknown"
         if _check_public_page_rate_limit(client_ip):
             logger.warning("public_page rate limit exceeded for IP %s", client_ip)
@@ -1303,19 +1427,30 @@ self.addEventListener('notificationclick', (event) => {
             page=page,
             title=page["title"] if page else "",
             content=page["content"] if page else "",
-            business_name=BUSINESS_NAME,
-            business_phone=BUSINESS_PHONE,
-            business_address=BUSINESS_ADDRESS,
+            business_phone=get_business_config().phone,
+            business_address=get_business_config().address,
         ), status_code))
         return _apply_public_page_security_headers(resp)
 
     @app.route("/ics/<page_id>")
-    def public_ics(page_id):
+    @app.route("/t/<tenant_id>/ics/<page_id>", endpoint="public_ics_tenant")
+    def public_ics(page_id, tenant_id=None):
         """קובץ ICS ציבורי — נטען ע"י Twilio (media_url) או הלקוח ישירות.
 
         משתמש באותה תשתית של response_pages: ה-content הוא טקסט ICS,
         ה-title הוא שם הקובץ ללא סיומת. headers זהים לעמוד הציבורי.
+        הנתיב עם /t/<slug>/ מגיש מה-DB של אותו tenant.
         """
+        if tenant_id is not None:
+            ctx = _bind_public_tenant(tenant_id)
+            if ctx is None:
+                resp = app.make_response(("", 404))
+                return _apply_public_page_security_headers(resp)
+            with ctx:
+                return _public_ics_impl(page_id)
+        return _public_ics_impl(page_id)
+
+    def _public_ics_impl(page_id):
         client_ip = request.remote_addr or "unknown"
         if _check_public_page_rate_limit(client_ip):
             logger.warning("public_ics rate limit exceeded for IP %s", client_ip)
@@ -1341,27 +1476,267 @@ self.addEventListener('notificationclick', (event) => {
             if _check_login_rate_limit(client_ip):
                 logger.warning("Login rate limit exceeded for IP %s", client_ip)
                 flash("יותר מדי ניסיונות התחברות. נסו שוב בעוד מספר דקות.", "danger")
-                return render_template("login.html", business_name=BUSINESS_NAME)
+                return render_template("login.html")
 
             username = request.form.get("username", "").strip()
             password = request.form.get("password", "")
+            remember = bool(request.form.get("remember_me"))
+
+            # מסלול legacy — פרטי env (בעל העסק של ה-tenant של ברירת המחדל)
             if _verify_admin_credentials(username, password):
-                if request.form.get("remember_me"):
+                session.clear()  # מניעת session fixation
+                if remember:
                     session.permanent = True
                 session["logged_in"] = True
                 flash("ברוכים השבים!", "success")
                 _audit_log("login_success", f"user={username}")
                 return redirect(url_for("dashboard"))
+
+            # מסלול פלטפורמה — משתמשי admin_users מה-control plane
+            # (multi-tenant שלב 2). ה-session נקשר ל-tenant של המשתמש.
+            try:
+                from control_plane import verify_admin_login
+
+                platform_user = verify_admin_login(username, password)
+            except Exception:
+                # דפוס קריטי #10: כשל תשתיתי אינו "פרטים שגויים" — מציגים
+                # הודעת זמינות ולא סופרים ניסיון כושל.
+                logger.error("platform login backend failed", exc_info=True)
+                flash("השירות אינו זמין כרגע — נסו שוב בעוד רגע.", "danger")
+                return render_template("login.html")
+
+            if platform_user:
+                session.clear()  # מניעת session fixation
+                if remember:
+                    session.permanent = True
+                session["logged_in"] = True
+                session["admin_email"] = platform_user["email"]
+                session["admin_role"] = platform_user["role"]
+                if platform_user["role"] == "owner":
+                    session["tenant_id"] = platform_user["tenant_id"]
+                flash("ברוכים השבים!", "success")
+                # בלי email בלוג (דפוס #7) — role + tenant מספיקים לאודיט
+                _audit_log(
+                    "login_success",
+                    f"platform_user role={platform_user['role']} "
+                    f"tenant={platform_user.get('tenant_id') or '-'}",
+                )
+                if platform_user["role"] == "platform_admin":
+                    return redirect(url_for("platform_home"))
+                return redirect(url_for("dashboard"))
+
             _record_login_attempt(client_ip)
             logger.warning("Failed login attempt from IP %s", client_ip)
             flash("פרטי התחברות שגויים.", "danger")
-        return render_template("login.html", business_name=BUSINESS_NAME)
+        return render_template("login.html")
     
     @app.route("/logout")
     def logout():
         session.clear()
         flash("התנתקת בהצלחה.", "info")
         return redirect(url_for("login"))
+
+    # ─── Platform Admin — ניהול ה-tenants (multi-tenant שלב 2) ────────────
+
+    def platform_admin_required(f):
+        """גישה ל-platform admins בלבד. לאחרים — 404 (לא חושפים קיום,
+        אותו דפוס כמו /dev)."""
+
+        @wraps(f)
+        def wrapper(*args, **kwargs):
+            if not session.get("logged_in"):
+                return redirect(url_for("login"))
+            if session.get("admin_role") != "platform_admin":
+                return "Not found", 404
+            return f(*args, **kwargs)
+
+        return wrapper
+
+    @app.route("/platform")
+    @platform_admin_required
+    def platform_home():
+        """מסך הפלטפורמה: רשימת ה-tenants, סטטוסים, ומעבר 'פעל-כ'."""
+        import control_plane as _cp
+
+        tenants = _cp.list_tenants()
+        # העשרה קלה לתצוגה — אילו חיבורים רשומים לכל tenant + ערוץ נעול
+        from tenancy import tenant_context, TenancyError
+
+        for t in tenants:
+            t["has_telegram"] = bool(
+                _cp.get_tenant_route_key(t["tenant_id"], "telegram_webhook_key")
+            )
+            t["has_twilio"] = bool(
+                _cp.get_tenant_route_key(t["tenant_id"], "twilio_webhook_key")
+            )
+            t["has_widget"] = bool(
+                _cp.get_tenant_route_key(t["tenant_id"], "widget_key")
+            )
+            # הערוץ הנעול יושב ב-DB של ה-tenant (subscription.channel);
+            # tenant מושעה/פגום לא מפיל את כל המסך — מציגים ריק.
+            t["channel"] = ""
+            try:
+                with tenant_context(t["tenant_id"]):
+                    t["channel"] = feature_flags.get_channel()
+            except TenancyError:
+                # מושעה/במעבר — מצב צפוי, אין ערוץ להציג
+                logger.debug(
+                    "platform_home: tenant %s blocked for channel read", t["tenant_id"]
+                )
+            except Exception:
+                logger.error(
+                    "platform_home: reading channel failed (tenant=%s)",
+                    t["tenant_id"], exc_info=True,
+                )
+        return render_template(
+            "platform.html",
+            tenants=tenants,
+            acting_tenant=session.get("acting_tenant", ""),
+        )
+
+    @app.route("/platform/act-as/<tenant_id>", methods=["POST"])
+    @platform_admin_required
+    def platform_act_as(tenant_id):
+        """כניסה למצב 'פעל-כ' — כל הפאנל עובר לעבוד על ה-tenant הנבחר."""
+        import control_plane as _cp
+        from tenancy import InvalidTenantSlug, validate_tenant_id
+
+        try:
+            validate_tenant_id(tenant_id)
+        except InvalidTenantSlug:
+            flash("מזהה tenant לא תקין.", "danger")
+            return redirect(url_for("platform_home"))
+        row = _cp.get_tenant(tenant_id)
+        if row is None or row["status"] != "active":
+            flash("ה-tenant אינו פעיל.", "warning")
+            return redirect(url_for("platform_home"))
+        session["acting_tenant"] = tenant_id
+        _audit_log("platform_act_as", f"tenant={tenant_id}")
+        flash(f"פועל כעת כ-{row['display_name']} ({tenant_id}).", "info")
+        return redirect(url_for("dashboard"))
+
+    @app.route("/platform/act-as-clear", methods=["POST"])
+    @platform_admin_required
+    def platform_act_as_clear():
+        session.pop("acting_tenant", None)
+        _audit_log("platform_act_as_clear")
+        flash("חזרת לתצוגת הפלטפורמה.", "info")
+        return redirect(url_for("platform_home"))
+
+    @app.route("/platform/tenants/<tenant_id>/status", methods=["POST"])
+    @platform_admin_required
+    def platform_tenant_status(tenant_id):
+        """השעיה/הפעלה של tenant מהמסך."""
+        import control_plane as _cp
+
+        status = request.form.get("status", "")
+        try:
+            _cp.set_tenant_status(tenant_id, status)
+        except Exception as exc:
+            logger.error("platform status change failed", exc_info=True)
+            flash(f"שינוי הסטטוס נכשל: {exc}", "danger")
+            return redirect(url_for("platform_home"))
+        # אם השעינו את ה-tenant שאנחנו פועלים-כ — יוצאים מהמצב
+        if status != "active" and session.get("acting_tenant") == tenant_id:
+            session.pop("acting_tenant", None)
+        _audit_log("platform_tenant_status", f"tenant={tenant_id} status={status}")
+        flash("הסטטוס עודכן.", "success")
+        return redirect(url_for("platform_home"))
+
+    @app.route("/platform/tenants/<tenant_id>/channel-unlock", methods=["POST"])
+    @platform_admin_required
+    def platform_tenant_channel_unlock(tenant_id):
+        """שחרור נעילת הערוץ של tenant — פותח את שני מקטעי הערוצים.
+
+        הנעילה נקבעת אוטומטית בחיבור הערוץ הראשון (bot_config). השחרור
+        לא מוחק כלום — נתוני הערוץ הקודם נמחקים רק כשהלקוח מזין בפועל
+        את נתוני הערוץ החדש (auto-set הבא).
+        """
+        import control_plane as _cp
+        from tenancy import tenant_context, validate_tenant_id, InvalidTenantSlug
+
+        try:
+            validate_tenant_id(tenant_id)
+        except InvalidTenantSlug:
+            flash("מזהה tenant לא תקין.", "danger")
+            return redirect(url_for("platform_home"))
+        if _cp.get_tenant(tenant_id) is None:
+            flash("ה-tenant אינו רשום.", "warning")
+            return redirect(url_for("platform_home"))
+        try:
+            with tenant_context(tenant_id):
+                feature_flags.set_channel("")
+        except Exception:
+            logger.error("channel unlock failed (tenant=%s)", tenant_id, exc_info=True)
+            flash("שחרור הנעילה נכשל — נסו שוב.", "danger")
+            return redirect(url_for("platform_home"))
+        _audit_log("platform_channel_unlock", f"tenant={tenant_id}")
+        flash(
+            "נעילת הערוץ שוחררה. שני מקטעי הערוצים פתוחים כעת אצל הלקוח; "
+            "עם חיבור הערוץ החדש — נתוני הערוץ הקודם יימחקו אוטומטית.",
+            "success",
+        )
+        return redirect(url_for("platform_home"))
+
+    @app.route("/platform/tenants/new", methods=["GET", "POST"])
+    @platform_admin_required
+    def platform_new_tenant():
+        """אשף יצירת לקוח חדש: tenant (DB + רישום) + משתמש כניסה לבעל העסק."""
+        import control_plane as _cp
+        from tenancy import InvalidTenantSlug
+
+        if request.method == "POST":
+            slug = request.form.get("slug", "").strip().lower()
+            display_name = request.form.get("display_name", "").strip()
+            owner_email = request.form.get("owner_email", "").strip()
+            owner_password = request.form.get("owner_password", "")
+
+            if not display_name:
+                flash("שם העסק חובה.", "danger")
+                return render_template("platform_new_tenant.html", form=request.form)
+            # יצירת ה-tenant (DB + seed) — ולידציית ה-slug בתוך create_tenant
+            try:
+                _cp.create_tenant(slug, display_name)
+            except InvalidTenantSlug:
+                flash("מזהה לא תקין — אותיות קטנות באנגלית, ספרות ומקפים בלבד.", "danger")
+                return render_template("platform_new_tenant.html", form=request.form)
+            except _cp.TenantExistsError:
+                flash("כבר קיים לקוח עם המזהה הזה.", "danger")
+                return render_template("platform_new_tenant.html", form=request.form)
+            except Exception:
+                logger.error("platform_new_tenant: create_tenant failed", exc_info=True)
+                flash("יצירת הלקוח נכשלה — נסו שוב.", "danger")
+                return render_template("platform_new_tenant.html", form=request.form)
+
+            # יצירת משתמש הכניסה של בעל העסק
+            try:
+                _cp.create_admin_user(
+                    owner_email, owner_password, role="owner", tenant_id=slug,
+                    display_name=display_name,
+                )
+            except ValueError as exc:
+                # ה-tenant כבר נוצר — משאירים אותו ומדווחים על בעיית המשתמש
+                flash(
+                    f"הלקוח נוצר, אך יצירת משתמש הכניסה נכשלה: {exc}. "
+                    "אפשר להוסיף משתמש בנפרד.",
+                    "warning",
+                )
+                return redirect(url_for("platform_home"))
+            except Exception:
+                logger.error("platform_new_tenant: create_admin_user failed", exc_info=True)
+                flash("הלקוח נוצר, אך יצירת משתמש הכניסה נכשלה — נסו להוסיפו בנפרד.", "warning")
+                return redirect(url_for("platform_home"))
+
+            _audit_log("platform_new_tenant", f"tenant={slug}")
+            flash(
+                f"הלקוח '{display_name}' נוצר! בעל העסק יכול להתחבר עם האימייל "
+                "שהזנת. השתמש ב'פעל-כ' כדי להזין את פרטי הערוצים, או שבעל העסק "
+                "יזין אותם בעצמו במסך 'הגדרות תשתית'.",
+                "success",
+            )
+            return redirect(url_for("platform_home"))
+
+        return render_template("platform_new_tenant.html", form={})
 
     # ─── Demo Mode entry ─────────────────────────────────────────────────
     @app.route("/demo")
@@ -1615,7 +1990,6 @@ self.addEventListener('notificationclick', (event) => {
 
         return render_template(
             "dashboard.html",
-            business_name=BUSINESS_NAME,
             stats=stats,
             recent_requests=pending_requests,
             recent_appointments=pending_appointments,
@@ -1636,7 +2010,6 @@ self.addEventListener('notificationclick', (event) => {
         categories = db.get_kb_categories()
         return render_template(
             "kb_list.html",
-            business_name=BUSINESS_NAME,
             entries=entries,
             categories=categories,
             current_category=category_filter,
@@ -1673,7 +2046,6 @@ self.addEventListener('notificationclick', (event) => {
         categories = db.get_kb_categories()
         return render_template(
             "kb_form.html",
-            business_name=BUSINESS_NAME,
             entry=None,
             categories=categories,
             action="Add",
@@ -1706,7 +2078,6 @@ self.addEventListener('notificationclick', (event) => {
         categories = db.get_kb_categories()
         return render_template(
             "kb_form.html",
-            business_name=BUSINESS_NAME,
             entry=entry,
             categories=categories,
             action="Edit",
@@ -1791,7 +2162,6 @@ self.addEventListener('notificationclick', (event) => {
 
         return render_template(
             "conversations.html",
-            business_name=BUSINESS_NAME,
             users=users,
             messages=messages,
             selected_user=selected_user,
@@ -1864,7 +2234,6 @@ self.addEventListener('notificationclick', (event) => {
         username = LiveChatService.get_customer_username(user_id)
         return render_template(
             "live_chat.html",
-            business_name=BUSINESS_NAME,
             user_id=user_id,
             username=username,
             messages=messages,
@@ -1944,7 +2313,6 @@ self.addEventListener('notificationclick', (event) => {
         active_live_chats = {lc["user_id"] for lc in LiveChatService.get_all_active()}
         return render_template(
             "requests.html",
-            business_name=BUSINESS_NAME,
             requests=requests_list,
             active_live_chats=active_live_chats,
         )
@@ -2185,7 +2553,6 @@ self.addEventListener('notificationclick', (event) => {
 
         return render_template(
             "appointments.html",
-            business_name=BUSINESS_NAME,
             appointments=appointments_list,
             settings=settings,
             duration_settings=duration_settings,
@@ -2277,7 +2644,6 @@ self.addEventListener('notificationclick', (event) => {
         open_count = db.count_unanswered_questions(status="open")
         return render_template(
             "knowledge_gaps.html",
-            business_name=BUSINESS_NAME,
             questions=questions,
             current_status=status_filter,
             open_count=open_count,
@@ -2317,7 +2683,6 @@ self.addEventListener('notificationclick', (event) => {
         holiday_years = sorted({sd["date"][:4] for sd in special_days})
         return render_template(
             "business_hours.html",
-            business_name=BUSINESS_NAME,
             hours=hours,
             special_days=special_days,
             holiday_years=holiday_years,
@@ -2410,7 +2775,6 @@ self.addEventListener('notificationclick', (event) => {
         all_services = db.get_all_services()
         return render_template(
             "services.html",
-            business_name=BUSINESS_NAME,
             services=all_services,
         )
 
@@ -2490,7 +2854,6 @@ self.addEventListener('notificationclick', (event) => {
         preview_agent = VacationService.get_agent_message()
         return render_template(
             "vacation_mode.html",
-            business_name=BUSINESS_NAME,
             vacation=vacation,
             preview_booking=preview_booking,
             preview_agent=preview_agent,
@@ -2510,7 +2873,6 @@ self.addEventListener('notificationclick', (event) => {
         auth_invalid = bool(cred_data and cred_data.get("auth_invalid_at"))
         return render_template(
             "google_calendar.html",
-            business_name=BUSINESS_NAME,
             credentials=cred_data,
             is_configured=is_configured,
             auth_invalid=auth_invalid,
@@ -2565,8 +2927,12 @@ self.addEventListener('notificationclick', (event) => {
             from google_calendar import exchange_code_for_credentials
             code_verifier = session.pop("google_oauth_code_verifier", "")
             result = exchange_code_for_credentials(code, code_verifier=code_verifier)
-            _audit_log("google_calendar", f"connected: {result.get('email', '')}")
-            flash(f"Google Calendar חובר בהצלחה! ({result.get('email', '')})", "success")
+            # דפוס #7 — לא כותבים email ללוג/אודיט. ה-domain מספיק לאבחון;
+            # הכתובת המלאה מוצגת לבעל העסק ב-flash (תצוגה, לא לוג).
+            _email = result.get("email", "")
+            _domain = _email.split("@", 1)[1] if "@" in _email else "?"
+            _audit_log("google_calendar", f"connected: domain={_domain}")
+            flash(f"Google Calendar חובר בהצלחה! ({_email})", "success")
         except Exception:
             logger.error("שגיאה בחיבור Google Calendar", exc_info=True)
             flash("שגיאה בחיבור Google Calendar. נסו שוב.", "danger")
@@ -2610,9 +2976,12 @@ self.addEventListener('notificationclick', (event) => {
         # בלי channel, build_system_prompt נופל ל-"telegram" ומזריק את כללי
         # עיצוב הטלגרם (תגי HTML) גם ללקוח WhatsApp-only. מכיוון שתיבת ה-override
         # מאותחלת עם ה-preview הזה, שמירה תשמור פרומפט טלגרם שנשלח מילה-במילה
-        # לשני הערוצים (llm.py) ותשבור עיצוב ב-WhatsApp. detect_active_channel
-        # מזהה את הערוץ לפי ה-credentials המוגדרים; None (dual/none) → telegram.
-        active_channel = detect_active_channel() or "telegram"
+        # לשני הערוצים (llm.py) ותשבור עיצוב ב-WhatsApp.
+        # סדר הקדימות: ערוץ ה-tenant הנעול (נקבע בחיבור הראשון) → זיהוי
+        # פר-tenant (סודות ה-control plane, או env ל-default) → telegram.
+        active_channel = (
+            feature_flags.get_channel() or _detect_tenant_channel() or "telegram"
+        )
         default_prompt = build_system_prompt(
             tone=settings.get("tone", "friendly"),
             custom_phrases=settings.get("custom_phrases", ""),
@@ -2625,7 +2994,6 @@ self.addEventListener('notificationclick', (event) => {
         active_prompt = full_override if full_override else default_prompt
         return render_template(
             "bot_settings.html",
-            business_name=BUSINESS_NAME,
             settings=settings,
             tone_definitions=TONE_DEFINITIONS,
             tone_labels=TONE_LABELS,
@@ -2652,6 +3020,29 @@ self.addEventListener('notificationclick', (event) => {
         _audit_log("bot_settings", "full_system_prompt override cleared")
         flash("הפרומפט אופס — חזרה לפרומפט ברירת המחדל מהקוד.", "success")
         return redirect(url_for("bot_settings"))
+
+    @app.route("/business-card", methods=["GET", "POST"])
+    @login_required
+    def business_card():
+        """כרטיס ביקור — טלפון/כתובת/אתר של העסק ל-vCard, ל-ICS ולעמוד
+        הציבורי. שם העסק נקבע בהקמה (display_name) ומוצג כאן לקריאה בלבד.
+        הערכים נצרכים בזמן-ריצה דרך config.get_business_config().
+        """
+        if request.method == "POST":
+            phone = request.form.get("business_phone", "").strip()[:50]
+            address = request.form.get("business_address", "").strip()[:300]
+            website = request.form.get("business_website", "").strip()[:300]
+            db.update_business_identity(
+                phone=phone, address=address, website=website
+            )
+            # בלי הערכים עצמם בלוג — טלפון/כתובת הם PII של בעל העסק (דפוס #7)
+            _audit_log("business_card", "contact details updated")
+            flash("כרטיס הביקור עודכן בהצלחה!", "success")
+            return redirect(url_for("business_card"))
+        return render_template(
+            "business_card.html",
+            settings=db.get_bot_settings(),
+        )
 
     # ─── Business Profile (שלב 2 של מערכת הזיכרון המתמשך) ───────────────
     # פרופיל עסק שמשמש את ה-fact extractor של מערכת הזיכרון. single-tenant:
@@ -2727,7 +3118,6 @@ self.addEventListener('notificationclick', (event) => {
 
         return render_template(
             "business_profile.html",
-            business_name=BUSINESS_NAME,
             profile=profile,
             services=services,
             business_type_options=BUSINESS_TYPE_OPTIONS,
@@ -3054,9 +3444,117 @@ self.addEventListener('notificationclick', (event) => {
 
     # ─── Bot Config (הגדרות תשתית — טוקן, סיסמה וכו') ─────────────────
 
+    def _bot_config_status():
+        """סטטוס תצורת הערוצים ל-GET של bot_config, לפי ה-tenant הנוכחי.
+
+        ל-tenant של ברירת המחדל (legacy) — מ-env; לכל tenant אחר —
+        מהסודות המוצפנים ב-control plane.
+        """
+        from tenancy import DEFAULT_TENANT, get_current_tenant
+        import ai_chatbot.config as _cfg
+
+        tenant = get_current_tenant()
+        if tenant == DEFAULT_TENANT:
+            return {
+                "has_bot_token": bool(_cfg.TELEGRAM_BOT_TOKEN),
+                "telegram_owner_chat_id": _cfg.TELEGRAM_OWNER_CHAT_ID,
+                "has_twilio_account_sid": bool(_cfg.TWILIO_ACCOUNT_SID),
+                "has_twilio_auth_token": bool(_cfg.TWILIO_AUTH_TOKEN),
+                "twilio_whatsapp_number": _cfg.TWILIO_WHATSAPP_NUMBER,
+            }
+        import control_plane as _cp
+
+        names = set(_cp.list_tenant_secret_names(tenant))
+        return {
+            "has_bot_token": "telegram_bot_token" in names,
+            "telegram_owner_chat_id": _cp.get_tenant_secret(tenant, "telegram_owner_chat_id") or "",
+            "has_twilio_account_sid": "twilio_account_sid" in names,
+            "has_twilio_auth_token": "twilio_auth_token" in names,
+            "twilio_whatsapp_number": _cp.get_tenant_secret(tenant, "twilio_whatsapp_number") or "",
+        }
+
+    def _connect_tenant_telegram(tenant):
+        """מבטיח מפתח webhook + secret ל-tenant, ומרשם את ה-webhook מול
+        טלגרם. מחזיר (ok: bool, note: str). אידמפוטנטי."""
+        import ai_chatbot.config as _cfg
+        import control_plane as _cp
+
+        key = _cp.get_tenant_route_key(tenant, "telegram_webhook_key")
+        if not key:
+            key = _cp.generate_route_key()
+            _cp.set_route("telegram_webhook_key", key, tenant)
+        secret = _cp.get_tenant_secret(tenant, "telegram_webhook_secret")
+        if not secret:
+            secret = _cp.generate_route_key()
+            _cp.set_tenant_secret(tenant, "telegram_webhook_secret", secret)
+
+        base = (_cfg.ADMIN_URL or "").rstrip("/")
+        if not base:
+            return False, "הטוקן נשמר, אך ADMIN_URL לא מוגדר — ה-webhook לא נרשם מול טלגרם."
+        try:
+            import asyncio
+            from bot_registry import sync_telegram_webhook, reset_tenant
+
+            webhook_url = f"{base}/telegram/webhook/t/{key}"
+            bot_username = asyncio.run(sync_telegram_webhook(tenant, webhook_url, secret))
+            # שם המשתמש של הבוט (getMe) — נשמר לקישורי QR / widget footer.
+            # ולידציית טיפוס: הערך מגיע מ-API חיצוני (טלגרם) — לא סומכים עליו.
+            if isinstance(bot_username, str) and bot_username.strip():
+                _cp.set_tenant_secret(
+                    tenant, "telegram_bot_username", bot_username.strip().lstrip("@")
+                )
+            reset_tenant(tenant)  # האפליקציה תיבנה מחדש עם הטוקן החדש
+            return True, ""
+        except Exception:
+            logger.error("connect telegram נכשל (tenant=%s)", tenant, exc_info=True)
+            return False, "הטוקן נשמר, אך רישום ה-webhook מול טלגרם נכשל — נסו שוב."
+
+    def _set_tenant_channel_after_connect(tenant, channel):
+        """נעילת הערוץ אחרי חיבור מוצלח + מחיקת נתוני הערוץ השני.
+
+        מדיניות מעבר ערוץ (החלטת מוצר): ברגע שהלקוח מתחבר לערוץ אחד,
+        השני ננעל ונתוניו נמחקים — לא משאירים credentials רדומים. שחרור
+        הנעילה נעשה רק ע"י מנהל הפלטפורמה (/platform). כשאין נתונים בצד
+        השני זו no-op, ולכן בטוח לקרוא בכל שמירה מחוברת.
+        כשל כאן לא מפיל את השמירה עצמה (הסודות כבר נכתבו) — רק לוג.
+        """
+        import control_plane as _cp
+
+        other = "whatsapp" if channel == "telegram" else "telegram"
+        try:
+            if feature_flags.get_channel() != channel:
+                feature_flags.set_channel(channel)
+                _audit_log("bot_config", f"channel set: {channel}")
+        except Exception:
+            logger.error("set_channel(%s) נכשל (tenant=%s)", channel, tenant, exc_info=True)
+        if other == "telegram":
+            # ביטול ה-webhook מול טלגרם לפני מחיקת הטוקן (best-effort —
+            # אחרי המחיקה אין דרך לבטל, כי הטוקן הוא ההרשאה)
+            try:
+                import asyncio
+                from bot_registry import remove_telegram_webhook, reset_tenant
+
+                if _cp.get_tenant_secret(tenant, "telegram_bot_token"):
+                    asyncio.run(remove_telegram_webhook(tenant))
+                    reset_tenant(tenant)
+            except Exception:
+                logger.error(
+                    "ביטול webhook טלגרם נכשל במעבר ערוץ (tenant=%s)", tenant,
+                    exc_info=True,
+                )
+        try:
+            _cp.delete_tenant_channel_data(tenant, other)
+        except Exception:
+            logger.error(
+                "מחיקת נתוני ערוץ %s נכשלה (tenant=%s)", other, tenant, exc_info=True,
+            )
+
     @app.route("/bot-config", methods=["GET", "POST"])
     @login_required
     def bot_config():
+        from tenancy import DEFAULT_TENANT, get_current_tenant
+        _tenant = get_current_tenant()
+        _is_platform_tenant = _tenant != DEFAULT_TENANT
         from dotenv import set_key as _dotenv_set_key
         from werkzeug.security import generate_password_hash as _gen_hash
         import ai_chatbot.config as _cfg
@@ -3071,21 +3569,17 @@ self.addEventListener('notificationclick', (event) => {
             if not env_path.exists():
                 env_path.touch()
 
-            # נעילת ערוץ לפי החבילה — defense in depth מעבר ל-disabled inputs
-            # בתבנית. אם החבילה Telegram, אסור לערוך WhatsApp ולהיפך.
-            current_plan = feature_flags.get_current_plan()
-            plan_channel = plans_config.get_plan_definition(current_plan).get("channel")
-            if form_type == "telegram" and plan_channel != "telegram":
+            # נעילת ערוץ פר-tenant — defense in depth מעבר ל-disabled inputs
+            # בתבנית. הערוץ נקבע אוטומטית בחיבור המוצלח הראשון (ראה בהמשך);
+            # מאותו רגע הערוץ השני נעול עד שחרור ע"י מנהל הפלטפורמה
+            # (/platform). ה-tenant של ברירת המחדל (legacy, env) פטור.
+            locked_channel = feature_flags.get_channel() if _is_platform_tenant else ""
+            if form_type in ("telegram", "whatsapp") and locked_channel and form_type != locked_channel:
+                _locked_label = "Telegram" if locked_channel == "telegram" else "WhatsApp"
+                _other_label = "WhatsApp" if form_type == "whatsapp" else "Telegram"
                 flash(
-                    "החבילה הנוכחית פועלת על WhatsApp — לא ניתן לערוך הגדרות "
-                    "Telegram. צור קשר עם ספק השירות לשינוי חבילה.",
-                    "danger",
-                )
-                return redirect(url_for("bot_config"))
-            if form_type == "whatsapp" and plan_channel != "whatsapp":
-                flash(
-                    "החבילה הנוכחית פועלת על Telegram — לא ניתן לערוך הגדרות "
-                    "WhatsApp. צור קשר עם ספק השירות לשינוי חבילה.",
+                    f"העסק מחובר ל-{_locked_label} — הגדרות {_other_label} נעולות. "
+                    "להחלפת ערוץ פנו לספק השירות (שחרור הנעילה נעשה ממסך הפלטפורמה).",
                     "danger",
                 )
                 return redirect(url_for("bot_config"))
@@ -3101,6 +3595,31 @@ self.addEventListener('notificationclick', (event) => {
                     return redirect(url_for("bot_config"))
 
                 changed = []
+                if _is_platform_tenant:
+                    # tenant בפלטפורמה — סודות מוצפנים ב-control plane, לא env
+                    import control_plane as _cp
+
+                    if token:
+                        _cp.set_tenant_secret(_tenant, "telegram_bot_token", token)
+                        changed.append("telegram_bot_token")
+                    _cp.set_tenant_secret(_tenant, "telegram_owner_chat_id", chat_id)
+                    if changed:
+                        _audit_log("bot_config", f"updated(tenant): {', '.join(changed)}")
+                    if token:
+                        # חיבור ראשון (או מעבר ערוץ אחרי שחרור נעילה):
+                        # הערוץ ננעל ל-telegram ונתוני WhatsApp נמחקים —
+                        # לא משאירים credentials של ערוץ שכבר לא בשימוש.
+                        _set_tenant_channel_after_connect(_tenant, "telegram")
+                        ok, note = _connect_tenant_telegram(_tenant)
+                        if ok:
+                            flash("הבוט חובר בהצלחה! ההודעות יגיעו לפאנל.", "success")
+                        else:
+                            flash(note, "warning")
+                    else:
+                        flash("הגדרות טלגרם נשמרו.", "success")
+                    return redirect(url_for("bot_config"))
+
+                # ── legacy (ה-tenant של ברירת המחדל) — env כמו קודם ──
                 if token:
                     _dotenv_set_key(str(env_path), "TELEGRAM_BOT_TOKEN", token)
                     os.environ["TELEGRAM_BOT_TOKEN"] = token
@@ -3140,6 +3659,39 @@ self.addEventListener('notificationclick', (event) => {
                     return redirect(url_for("bot_config"))
 
                 changed = []
+                if _is_platform_tenant:
+                    # tenant בפלטפורמה — סודות מוצפנים + מפתח webhook ל-Twilio
+                    import control_plane as _cp
+                    from messaging.whatsapp_sender import reset_twilio_clients
+
+                    if account_sid:
+                        _cp.set_tenant_secret(_tenant, "twilio_account_sid", account_sid)
+                        changed.append("twilio_account_sid")
+                    if auth_token:
+                        _cp.set_tenant_secret(_tenant, "twilio_auth_token", auth_token)
+                        changed.append("twilio_auth_token")
+                    _cp.set_tenant_secret(_tenant, "twilio_whatsapp_number", wa_number)
+                    # מבטיחים מפתח webhook כדי שכתובת הקבלה מ-Twilio תהיה זמינה
+                    if not _cp.get_tenant_route_key(_tenant, "twilio_webhook_key"):
+                        _cp.set_route("twilio_webhook_key", _cp.generate_route_key(), _tenant)
+                    reset_twilio_clients()  # ייבנה מחדש עם ה-credentials החדשים
+                    if changed:
+                        _audit_log("bot_config", f"updated(tenant): {', '.join(changed)}")
+                    # חיבור WhatsApp נחשב מלא כשכל השלישייה קיימת בסודות
+                    # (sid + auth token + מספר) — רק אז נועלים את הערוץ
+                    # ומוחקים את נתוני הטלגרם (אם נשארו ממעבר ערוץ).
+                    _names = set(_cp.list_tenant_secret_names(_tenant))
+                    if {"twilio_account_sid", "twilio_auth_token",
+                            "twilio_whatsapp_number"} <= _names:
+                        _set_tenant_channel_after_connect(_tenant, "whatsapp")
+                    flash(
+                        "הגדרות WhatsApp נשמרו. את כתובת ה-Webhook להזין ב-Twilio "
+                        "Console אפשר לראות במסך ניהול הפלטפורמה.",
+                        "success",
+                    )
+                    return redirect(url_for("bot_config"))
+
+                # ── legacy (ה-tenant של ברירת המחדל) — env כמו קודם ──
                 if account_sid:
                     _dotenv_set_key(str(env_path), "TWILIO_ACCOUNT_SID", account_sid)
                     os.environ["TWILIO_ACCOUNT_SID"] = account_sid
@@ -3164,10 +3716,38 @@ self.addEventListener('notificationclick', (event) => {
                 flash("הגדרות WhatsApp נשמרו בהצלחה! השינויים ייכנסו לתוקף לאחר הפעלה מחדש.", "success")
 
             elif form_type == "admin":
-                # טופס אדמין — עדכון רק שדות גישה
+                # טופס אדמין — עדכון שדות גישה
                 username = request.form.get("admin_username", "").strip()
                 new_password = request.form.get("admin_password", "")
                 new_secret_key = request.form.get("admin_secret_key", "")
+
+                # tenant בפלטפורמה: הכניסה שלו היא משתמש admin_users (אימייל),
+                # לא env. הטופס משנה את סיסמת ה-**owner של ה-tenant הנוכחי**
+                # — לא את המשתמש המחובר. כך גם במצב "פעל-כ" מנהל הפלטפורמה
+                # מאפס את סיסמת הלקוח (ולא את שלו עצמו בטעות); כש-owner
+                # מחובר בעצמו — זה ממילא אותו משתמש.
+                if _is_platform_tenant:
+                    if new_password:
+                        import control_plane as _cp
+
+                        owner = _cp.get_tenant_owner(_tenant)
+                        if not owner:
+                            flash(
+                                "לא נמצא משתמש בעלים ללקוח הזה — צרו אותו "
+                                "במסך הפלטפורמה.",
+                                "danger",
+                            )
+                            return redirect(url_for("bot_config"))
+                        try:
+                            _cp.set_admin_password(owner["email"], new_password)
+                        except ValueError as exc:
+                            flash(str(exc), "danger")
+                            return redirect(url_for("bot_config"))
+                        _audit_log("bot_config", "owner password changed")
+                        flash("הסיסמה עודכנה בהצלחה.", "success")
+                    else:
+                        flash("לא בוצע שינוי.", "info")
+                    return redirect(url_for("bot_config"))
 
                 if not username:
                     flash("שם משתמש אדמין לא יכול להיות ריק.", "danger")
@@ -3234,15 +3814,27 @@ self.addEventListener('notificationclick', (event) => {
             if _cfg.ADMIN_URL else ""
         )
 
+        # סטטוס הערוצים לפי ה-tenant (env ל-default, מוצפן ל-tenant אחר)
+        _status = _bot_config_status()
+        # שם המשתמש במסך הגישה: ל-tenant בפלטפורמה — האימייל של ה-**owner
+        # של ה-tenant** (לא של המשתמש המחובר: במצב "פעל-כ" זה היה מציג
+        # בטעות את מנהל הפלטפורמה). "—" כשאין עדיין owner.
+        if _is_platform_tenant:
+            import control_plane as _cp
+
+            _owner = _cp.get_tenant_owner(_tenant)
+            _admin_username = (_owner or {}).get("email") or "—"
+        else:
+            _admin_username = _cfg.ADMIN_USERNAME
         return render_template(
             "bot_config.html",
-            business_name=BUSINESS_NAME,
-            has_bot_token=bool(_cfg.TELEGRAM_BOT_TOKEN),
-            telegram_owner_chat_id=_cfg.TELEGRAM_OWNER_CHAT_ID,
-            has_twilio_account_sid=bool(_cfg.TWILIO_ACCOUNT_SID),
-            has_twilio_auth_token=bool(_cfg.TWILIO_AUTH_TOKEN),
-            twilio_whatsapp_number=_cfg.TWILIO_WHATSAPP_NUMBER,
-            admin_username=_cfg.ADMIN_USERNAME,
+            has_bot_token=_status["has_bot_token"],
+            telegram_owner_chat_id=_status["telegram_owner_chat_id"],
+            has_twilio_account_sid=_status["has_twilio_account_sid"],
+            has_twilio_auth_token=_status["has_twilio_auth_token"],
+            twilio_whatsapp_number=_status["twilio_whatsapp_number"],
+            is_platform_tenant=_is_platform_tenant,
+            admin_username=_admin_username,
             has_secret_key=bool(_cfg.ADMIN_SECRET_KEY),
             meta_pages=meta_pages,
             meta_env_missing=meta_env_missing,
@@ -3303,7 +3895,6 @@ self.addEventListener('notificationclick', (event) => {
         ref_settings = db.get_bot_settings()
         return render_template(
             "referrals.html",
-            business_name=BUSINESS_NAME,
             stats=stats,
             top_referrers=top_referrers,
             all_referrals=all_referrals,
@@ -3314,24 +3905,30 @@ self.addEventListener('notificationclick', (event) => {
 
     # ─── QR Code ──────────────────────────────────────────────────────────
 
-    def _qr_target_url(channel: str) -> tuple[str, str]:
-        """החזרת (url, filename_slug) לפי הערוץ.
+    def _qr_channel_identity() -> dict:
+        """זהות הערוץ של ה-tenant הנוכחי — username / מספר WhatsApp.
 
-        קוראים את הערכים בצורה דינמית (_cfg) כדי שעדכון ב-/bot-config יתפוס
-        מיד בלי restart. מחזיר ("", "") אם הערוץ לא מוגדר.
+        פר-tenant: ל-default מ-env (עדכון ב-/bot-config תופס בלי restart),
+        לכל tenant אחר — מהסודות (telegram_bot_username נלכד ב-getMe בעת
+        חיבור הטוקן). כך ה-QR של כל לקוח מצביע על הבוט/מספר *שלו*.
         """
-        import ai_chatbot.config as _cfg
+        import control_plane as _cp
+        from tenancy import get_current_tenant
+
+        return _cp.get_tenant_channel_identity(get_current_tenant())
+
+    def _qr_target_url(channel: str) -> tuple[str, str]:
+        """החזרת (url, filename_slug) לפי הערוץ. ("", "") אם לא מוגדר."""
+        identity = _qr_channel_identity()
         if channel == "whatsapp":
             from utils.phone import to_wa_me_digits
-            digits = to_wa_me_digits(_cfg.TWILIO_WHATSAPP_NUMBER)
+            digits = to_wa_me_digits(identity["whatsapp_number"])
             if not digits:
                 return "", ""
             return f"https://wa.me/{digits}", f"whatsapp_{digits}"
-        if _cfg.TELEGRAM_BOT_USERNAME:
-            return (
-                f"https://t.me/{_cfg.TELEGRAM_BOT_USERNAME}",
-                _cfg.TELEGRAM_BOT_USERNAME,
-            )
+        bot_username = (identity["telegram_bot_username"] or "").lstrip("@")
+        if bot_username:
+            return f"https://t.me/{bot_username}", bot_username
         return "", ""
 
     def _generate_qr_png(target_url: str, scale: int, dark_color: str, with_logo: bool) -> io.BytesIO:
@@ -3362,17 +3959,16 @@ self.addEventListener('notificationclick', (event) => {
     @app.route("/qr-code")
     @login_required
     def qr_code():
-        import ai_chatbot.config as _cfg
         from utils.phone import to_wa_me_digits
         # מעבירים digits נקיים (אותה לוגיקה כמו ב-_qr_target_url) כדי שהקישור
         # שמתחת ל-QR יתאים בדיוק ל-URL שמקודד ב-QR. הצגת המספר המקורי
-        # נשמרת רק להצגת המשתמש (whatsapp_number).
+        # נשמרת רק להצגת המשתמש (whatsapp_number). הזהות פר-tenant.
+        identity = _qr_channel_identity()
         return render_template(
             "qr_code.html",
-            business_name=BUSINESS_NAME,
-            bot_username=_cfg.TELEGRAM_BOT_USERNAME,
-            whatsapp_number=_cfg.TWILIO_WHATSAPP_NUMBER,
-            whatsapp_digits=to_wa_me_digits(_cfg.TWILIO_WHATSAPP_NUMBER),
+            bot_username=(identity["telegram_bot_username"] or "").lstrip("@"),
+            whatsapp_number=identity["whatsapp_number"],
+            whatsapp_digits=to_wa_me_digits(identity["whatsapp_number"]),
             has_logo=db.has_business_logo(),
         )
 
@@ -3386,8 +3982,12 @@ self.addEventListener('notificationclick', (event) => {
 
         target_url, slug = _qr_target_url(channel)
         if not target_url:
-            missing = "TWILIO_WHATSAPP_NUMBER" if channel == "whatsapp" else "TELEGRAM_BOT_USERNAME"
-            flash(f"לא הוגדר {missing}. יש להגדיר בפאנל → הגדרות תשתית.", "danger")
+            _ch_label = "WhatsApp" if channel == "whatsapp" else "טלגרם"
+            flash(
+                f"ערוץ ה-{_ch_label} עוד לא מחובר — חברו אותו במסך "
+                "'הגדרות תשתית' וה-QR ייווצר אוטומטית.",
+                "danger",
+            )
             return redirect(url_for("qr_code"))
 
         # קריאת פרמטרי עיצוב מה-query string
@@ -3429,7 +4029,6 @@ self.addEventListener('notificationclick', (event) => {
         logo = db.get_business_logo()
         return render_template(
             "branding.html",
-            business_name=BUSINESS_NAME,
             has_logo=logo is not None,
             logo_uploaded_at=logo.get("uploaded_at") if logo else "",
         )
@@ -3535,7 +4134,6 @@ self.addEventListener('notificationclick', (event) => {
         }
         return render_template(
             "broadcast.html",
-            business_name=BUSINESS_NAME,
             broadcasts=broadcasts,
             recipient_counts=recipient_counts,
             audience_labels=AUDIENCE_LABELS,
@@ -3685,11 +4283,15 @@ self.addEventListener('notificationclick', (event) => {
         # בדיקה אם יש נמעני Telegram — אם כן, צריך Bot
         has_telegram = any(r["channel"] == "telegram" for r in recipients_with_channel)
 
-        # admin-only mode — יוצרים Bot חדש שיאותחל ע"י ה-worker
+        # admin-only mode — יוצרים Bot חדש שיאותחל ע"י ה-worker.
+        # הטוקן נפתר לפי ה-tenant הנוכחי (default → env; אחר → הסודות שלו).
         needs_init = False
         if bot is None and has_telegram:
-            if TELEGRAM_BOT_TOKEN:
-                bot = TelegramBot(token=TELEGRAM_BOT_TOKEN)
+            from bot_registry import resolve_telegram_token
+
+            _tg_token = resolve_telegram_token()
+            if _tg_token:
+                bot = TelegramBot(token=_tg_token)
                 needs_init = True
             else:
                 # אין Bot ואין טוקן — אי אפשר לשלוח לנמעני Telegram
@@ -3760,7 +4362,6 @@ self.addEventListener('notificationclick', (event) => {
         )
         return render_template(
             "broadcast_templates.html",
-            business_name=BUSINESS_NAME,
             templates=templates,
             counts=counts,
             category_counts=category_counts,
@@ -3805,7 +4406,6 @@ self.addEventListener('notificationclick', (event) => {
 
         return render_template(
             "broadcast_campaigns_list.html",
-            business_name=BUSINESS_NAME,
             campaigns=campaigns,
             status_filter=status_filter,
         )
@@ -3839,7 +4439,6 @@ self.addEventListener('notificationclick', (event) => {
         pre_selected = request.args.get("sid", "").strip()
         return render_template(
             "broadcast_campaigns_new.html",
-            business_name=BUSINESS_NAME,
             approved_templates=approved,
             pending_templates=pending,
             pre_selected_sid=pre_selected,
@@ -3927,7 +4526,6 @@ self.addEventListener('notificationclick', (event) => {
 
         return render_template(
             "broadcast_campaigns_edit.html",
-            business_name=BUSINESS_NAME,
             campaign=campaign,
             template=template,
             preview=preview,
@@ -4122,7 +4720,6 @@ self.addEventListener('notificationclick', (event) => {
 
         return render_template(
             "broadcast_campaigns_detail.html",
-            business_name=BUSINESS_NAME,
             campaign=campaign,
             template=template,
             progress=progress,
@@ -4516,7 +5113,6 @@ self.addEventListener('notificationclick', (event) => {
         # ולידציה שרתית של הערך מבוצעת ב-POST handler מול VALID_CATEGORIES.
         return render_template(
             "broadcast_template_submit.html",
-            business_name=BUSINESS_NAME,
             template=tpl,
             suggested_name=sanitize_template_name(tpl["friendly_name"]),
         )
@@ -4727,7 +5323,6 @@ self.addEventListener('notificationclick', (event) => {
         )
         return render_template(
             "broadcast_template_new.html",
-            business_name=BUSINESS_NAME,
             languages=SUPPORTED_LANGUAGES,
             categories=BROADCAST_CATEGORIES,
             default_category="MARKETING",
@@ -5242,7 +5837,6 @@ self.addEventListener('notificationclick', (event) => {
 
         return render_template(
             "customers.html",
-            business_name=BUSINESS_NAME,
             customers=customers_list,
             search=search,
             page=page,
@@ -5332,7 +5926,6 @@ self.addEventListener('notificationclick', (event) => {
             return redirect(url_for("customers"))
         return render_template(
             "customer_card.html",
-            business_name=BUSINESS_NAME,
             card=card,
         )
 
@@ -5381,7 +5974,6 @@ self.addEventListener('notificationclick', (event) => {
         blocked = db.get_blocked_users()
         return render_template(
             "audience.html",
-            business_name=BUSINESS_NAME,
             blocked_users=blocked,
         )
 
@@ -5575,7 +6167,6 @@ self.addEventListener('notificationclick', (event) => {
 
         return render_template(
             "analytics.html",
-            business_name=BUSINESS_NAME,
             days=days,
             summary=summary,
             daily=daily,
@@ -5660,7 +6251,6 @@ self.addEventListener('notificationclick', (event) => {
         reports = db.get_developer_reports()
         return render_template(
             "developer_report.html",
-            business_name=BUSINESS_NAME,
             reports=reports,
             dev_configured=is_configured(),
         )
@@ -5930,13 +6520,78 @@ self.addEventListener('notificationclick', (event) => {
 
         return "OK", 200
 
+    @app.route("/telegram/webhook/t/<webhook_key>", methods=["POST"])
+    @csrf.exempt  # בקשות מטלגרם — ללא CSRF token
+    def telegram_tenant_webhook(webhook_key):
+        """‏webhook של בוט tenant (multi-tenant שלב 2, spec 6.1).
+
+        המפתח האקראי ב-URL קובע את ה-tenant; ה-secret של טלגרם מאומת מול
+        הסוד *של אותו tenant*. העיבוד נשלח ללולאת הבוטים המשותפת, שם
+        האפליקציה של ה-tenant נבנית עצלה בהודעה הראשונה (bot_registry).
+        """
+        from control_plane import resolve_route
+        from bot_registry import dispatch_tenant_update, resolve_webhook_secret
+
+        tenant = resolve_route("telegram_webhook_key", webhook_key)
+        if tenant is None:
+            logger.warning("telegram tenant webhook: unknown key — rejecting")
+            return "Not found", 404
+
+        # fail-closed: ל-tenant חייב להיות secret רשום (connect-telegram
+        # יוצר אותו). בלי secret אין דרך לאמת שהבקשה באמת מטלגרם.
+        secret = resolve_webhook_secret(tenant)
+        header = request.headers.get("X-Telegram-Bot-Api-Secret-Token", "")
+        if not secret or not hmac.compare_digest(header, secret):
+            logger.warning(
+                "telegram tenant webhook: invalid secret (tenant=%s)", tenant,
+            )
+            return "Forbidden", 403
+
+        bot_loop = app.config.get("_bot_loop")
+        if bot_loop is None:
+            # בוטים של tenants דורשים את לולאת ה-webhook המשולבת (main.py
+            # במצב webhook). ב-polling/admin-only אין לולאה — 503 עם לוג.
+            logger.error(
+                "telegram tenant webhook: bot loop not available "
+                "(platform requires webhook mode)"
+            )
+            return "Bot loop not available", 503
+
+        try:
+            import asyncio
+
+            update_data = request.get_json(force=True)
+            future = asyncio.run_coroutine_threadsafe(
+                dispatch_tenant_update(tenant, update_data),
+                bot_loop,
+            )
+
+            # callback לזיהוי כשלונות — לא זורקים את ה-Future
+            def _on_done(f):
+                if f.cancelled():
+                    return
+                exc = f.exception()
+                if exc:
+                    logger.error(
+                        "Error processing tenant webhook update (tenant=%s): %s",
+                        tenant, exc,
+                    )
+
+            future.add_done_callback(_on_done)
+        except Exception:
+            logger.exception("Failed to process tenant webhook update")
+            return "Internal error", 500
+
+        return "OK", 200
+
     # ── WhatsApp Webhook Blueprint ───────────────────────────────────────
-    from ai_chatbot.config import TWILIO_ACCOUNT_SID
-    if TWILIO_ACCOUNT_SID:
-        from messaging.whatsapp_webhook import whatsapp_bp
-        csrf.exempt(whatsapp_bp)  # Twilio שולח POST ללא CSRF token
-        app.register_blueprint(whatsapp_bp)
-        logger.info("WhatsApp webhook blueprint registered at /webhook/whatsapp")
+    # נרשם תמיד (multi-tenant): גם כשה-env לא מגדיר Twilio, ל-tenants
+    # יכולים להיות credentials ב-control plane. ההחלטה אם לשרת נעשית
+    # פר-בקשה (resolve של ה-tenant + בדיקת הגדרות ⇒ 404/503 בהתאם).
+    from messaging.whatsapp_webhook import whatsapp_bp
+    csrf.exempt(whatsapp_bp)  # Twilio שולח POST ללא CSRF token
+    app.register_blueprint(whatsapp_bp)
+    logger.info("WhatsApp webhook blueprint registered at /webhook/whatsapp")
 
     # ── Meta DM Webhook Blueprint (Instagram + Messenger) ───────────────
     # שלב 1: רק קליטה ולוג. בלי OAuth, בלי שליחה, בלי כתיבה ל-DB.

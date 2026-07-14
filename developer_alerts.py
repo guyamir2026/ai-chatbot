@@ -88,36 +88,19 @@ def notify_developer(message: str, *, level: str = "warning") -> bool:
     return ok
 
 
-def notify_channel_mismatch(
-    plan: str,
-    expected_channel: str,
-    actual_channel: Optional[str],
-) -> bool:
-    """
-    התראה על אי-התאמה בין הערוץ הצפוי בחבילה לבין הערוץ הפעיל בפועל.
-    נקרא ב-startup ב-main.py.
-    """
-    actual_str = actual_channel if actual_channel else "(none detected)"
-    msg = (
-        f"Channel mismatch detected on startup\n"
-        f"Configured plan: `{plan}` (expected channel: `{expected_channel}`)\n"
-        f"Actual channel: `{actual_str}`\n\n"
-        f"Action: עדכנו את ה-plan ב-/dev/subscription, או ה-env vars של הערוץ."
-    )
-    return notify_developer(msg, level="warning")
-
-
 def detect_active_channel() -> Optional[str]:
     """
     זיהוי הערוץ הפעיל בפועל — בודק אילו ENV vars מוגדרים.
+
+    משמש כ-fallback לתצוגה בלבד (preview של הפרומפט / מסך "החבילה שלי")
+    עבור ה-tenant של ברירת המחדל, שאין לו subscription.channel מנוהל.
+    הערוץ פר-tenant נקבע ב-feature_flags.get_channel — לא כאן.
 
     מחזיר:
     - 'telegram'   — רק TELEGRAM_BOT_TOKEN מוגדר.
     - 'whatsapp'   — רק Twilio מוגדר במלואו.
     - None         — אף אחד מוגדר, או **שניהם מוגדרים יחד** (dual-channel
-                     לסביבות בדיקה). המקרה הזה חוקי, ובמקרה כזה לא נייצר
-                     התראת mismatch — actual_channel == None ↔ אין mismatch
-                     ב-`check_and_alert_channel_mismatch`.
+                     לסביבות בדיקה).
     """
     import ai_chatbot.config as _cfg
 
@@ -134,65 +117,3 @@ def detect_active_channel() -> Optional[str]:
         return "telegram"
     # שניהם מוגדרים (dual-channel לבדיקות) או אף אחד — לא קובעים ערוץ
     return None
-
-
-def check_and_alert_channel_mismatch() -> Optional[dict]:
-    """
-    מבצע את הבדיקה המלאה של channel mismatch:
-    1. שולף את החבילה הנוכחית.
-    2. מזהה את הערוץ הפעיל בפועל.
-    3. אם יש mismatch — שולח התראה למפתח.
-
-    מחזיר dict עם סיכום הבדיקה (שימושי לטסטים), או None אם לא ניתן
-    לבצע (אין subscription / DB / config).
-    לא זורק לעולם.
-    """
-    try:
-        from ai_chatbot import feature_flags
-        from ai_chatbot import plans_config
-    except Exception:
-        logger.error("developer_alerts: failed to import modules", exc_info=True)
-        return None
-
-    try:
-        plan = feature_flags.get_current_plan()
-        plan_def = plans_config.get_plan_definition(plan)
-        expected_channel = plan_def.get("channel")
-    except Exception:
-        logger.error(
-            "developer_alerts: failed to read current plan for mismatch check",
-            exc_info=True,
-        )
-        return None
-
-    actual_channel = detect_active_channel()
-
-    is_mismatch = (
-        expected_channel is not None
-        and actual_channel is not None
-        and actual_channel != expected_channel
-    )
-
-    summary = {
-        "plan": plan,
-        "expected_channel": expected_channel,
-        "actual_channel": actual_channel,
-        "is_mismatch": is_mismatch,
-        "alert_sent": False,
-    }
-
-    if is_mismatch:
-        logger.warning(
-            "channel_mismatch: plan=%s expected=%s actual=%s",
-            plan, expected_channel, actual_channel,
-        )
-        summary["alert_sent"] = notify_channel_mismatch(
-            plan, expected_channel, actual_channel
-        )
-    else:
-        logger.info(
-            "channel_check: ok plan=%s channel=%s",
-            plan, expected_channel,
-        )
-
-    return summary

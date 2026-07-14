@@ -1,0 +1,65 @@
+{% extends "base.html" %}
+
+{% block title %}לקוח חדש{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <h1><i class="bi bi-plus-circle"></i> לקוח חדש</h1>
+    <p class="page-subtitle">
+        יצירת החשבון בלבד — מזהה, שם עסק, ומשתמש כניסה לבעל העסק.
+        את פרטי הערוצים (טלגרם / WhatsApp) והתוכן בעל העסק ימלא בעצמו בפאנל שלו,
+        או שתמלא אתה במצב "פעל-כ".
+    </p>
+</div>
+
+<div class="card" style="max-width: 640px;">
+    <div class="card-body">
+        <form method="POST" action="{{ url_for('platform_new_tenant') }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+
+            <div class="form-group">
+                <label for="slug" class="form-label">מזהה עסק (slug)</label>
+                <input type="text" class="form-input" id="slug" name="slug" required
+                       dir="ltr" pattern="[a-z0-9][a-z0-9-]{0,31}"
+                       value="{{ form.get('slug', '') }}"
+                       placeholder="dana-salon">
+                <small class="form-hint">אותיות קטנות באנגלית, ספרות ומקפים. משמש בכתובות — לא ניתן לשינוי מאוחר יותר.</small>
+            </div>
+
+            <div class="form-group">
+                <label for="display_name" class="form-label">שם העסק</label>
+                <input type="text" class="form-input" id="display_name" name="display_name" required
+                       value="{{ form.get('display_name', '') }}"
+                       placeholder="מספרת דנה">
+                <small class="form-hint">מוצג בפאנל ובהודעות. ניתן לשינוי מאוחר יותר.</small>
+            </div>
+
+            <hr>
+
+            <div class="form-group">
+                <label for="owner_email" class="form-label">אימייל בעל העסק</label>
+                <input type="email" class="form-input" id="owner_email" name="owner_email" required
+                       dir="ltr" autocomplete="off"
+                       value="{{ form.get('owner_email', '') }}"
+                       placeholder="owner@business.co.il">
+                <small class="form-hint">איתו בעל העסק יתחבר לפאנל שלו.</small>
+            </div>
+
+            <div class="form-group">
+                <label for="owner_password" class="form-label">סיסמה ראשונית</label>
+                <input type="password" class="form-input" id="owner_password" name="owner_password" required
+                       minlength="8" autocomplete="new-password"
+                       placeholder="לפחות 8 תווים">
+                <small class="form-hint">מסרו לבעל העסק; הוא יוכל לשנות אותה בפאנל.</small>
+            </div>
+
+            <div style="display: flex; gap: 0.75rem; margin-top: 1rem;">
+                <button type="submit" class="btn btn-primary">
+                    <i class="bi bi-check-lg"></i> צור לקוח
+                </button>
+                <a href="{{ url_for('platform_home') }}" class="btn btn-secondary">ביטול</a>
+            </div>
+        </form>
+    </div>
+</div>
+{% endblock %}

@@ -86,11 +86,21 @@ class TestWhatsAppWebhook:
         monkeypatch.setenv("ADMIN_SECRET_KEY", "test-secret")
         monkeypatch.setenv("ADMIN_PASSWORD", "test")
 
-        # Patch config constants — כי הם כבר נטענו לפני הטסט
+        # מאז הראוטינג הרב-tenant, פרטי Twilio נקראים דינמית מ-config
+        # (דרך _resolve_twilio_settings) — ה-patch עובר לשם.
         import messaging.whatsapp_webhook as wh_mod
-        monkeypatch.setattr(wh_mod, "TWILIO_ACCOUNT_SID", "test_sid")
-        monkeypatch.setattr(wh_mod, "TWILIO_AUTH_TOKEN", "test_token")
-        monkeypatch.setattr(wh_mod, "TWILIO_WHATSAPP_NUMBER", "+14155551234")
+        import ai_chatbot.config as _cfg
+        monkeypatch.setattr(_cfg, "TWILIO_ACCOUNT_SID", "test_sid")
+        monkeypatch.setattr(_cfg, "TWILIO_AUTH_TOKEN", "test_token")
+        monkeypatch.setattr(_cfg, "TWILIO_WHATSAPP_NUMBER", "+14155551234")
+
+        # DB זמני אמיתי עם סכימה — הנתיב נקרא דינמית מ-config (tenancy),
+        # כך שה-patch כאן מכסה את כל קריאות ה-DB של ה-webhook. היסטורית
+        # הטסטים האלה עבדו על DB שדלף מטסטים קודמים (העותק הקפוא של
+        # DB_PATH) — עכשיו הבידוד אמיתי.
+        monkeypatch.setattr(_cfg, "DB_PATH", tmp_path / "test.db")
+        from database import init_db
+        init_db()
 
         # Patch resolve_whatsapp_user — מחזיר את מספר הטלפון כ-user_id (מצב נוכחי)
         monkeypatch.setattr(

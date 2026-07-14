@@ -14,8 +14,10 @@ import pytest
 @pytest.fixture(autouse=True)
 def _mock_config():
     """מוק להגדרות config — שם עסק וכתובת."""
-    with patch("ics_service.BUSINESS_NAME", "מספרת דנה"), \
-         patch("ics_service.BUSINESS_ADDRESS", "דיזנגוף 50, תל אביב"):
+    # מאז מעבר הזהות העסקית ל-get_business_config() — ה-patch על config
+    # (ה-accessor קורא את ערכי המודול דינמית בכל קריאה)
+    with patch("config.BUSINESS_NAME", "מספרת דנה"), \
+         patch("config.BUSINESS_ADDRESS", "דיזנגוף 50, תל אביב"):
         yield
 
 
@@ -112,7 +114,7 @@ class TestGenerateIcs:
         """כשאין כתובת — אין שדה LOCATION באירוע (רק X-LIC-LOCATION ב-VTIMEZONE)."""
         from ics_service import generate_ics
 
-        with patch("ics_service.BUSINESS_ADDRESS", ""):
+        with patch("config.BUSINESS_ADDRESS", ""):
             result = generate_ics(
                 service="ייעוץ",
                 preferred_date="2026-05-15",

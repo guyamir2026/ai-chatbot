@@ -690,13 +690,19 @@ class TestLiveChatFlow:
 
 
 @pytest.fixture
-def admin_client(real_db, monkeypatch):
+def admin_client(real_db, tmp_path, monkeypatch):
     """Flask test client עם login אוטומטי ו-DB אמיתי."""
     monkeypatch.setenv("ADMIN_USERNAME", "admin")
     monkeypatch.setenv("ADMIN_PASSWORD", "testpass123")
     monkeypatch.setenv("ADMIN_SECRET_KEY", "test-secret-key-for-integration")
+    # ה-reload למטה מריץ את config.py מחדש וקורא DB_PATH מה-env — חייבים
+    # לכוון אותו לאותו קובץ שה-fixture real_db אתחל (tmp_path משותף לשניהם),
+    # אחרת get_connection (שקורא את config.DB_PATH דינמית דרך tenancy)
+    # יפנה ל-DB ריק בלי סכימה.
+    monkeypatch.setenv("DB_PATH", str(tmp_path / "integration_test.db"))
 
     # reload שרשרת config → ai_chatbot.config → admin.app כדי שהערכים החדשים יתפסו
+    # (ai_chatbot.config הוא alias לאותו מודול — ה-reload הכפול אידמפוטנטי)
     import config as _root_config
     importlib.reload(_root_config)
     import ai_chatbot.config
@@ -1044,11 +1050,14 @@ class TestAdminDashboard:
             assert "status" in data
             assert "checks" in data
 
-    def test_login_and_logout(self, real_db, monkeypatch):
+    def test_login_and_logout(self, real_db, tmp_path, monkeypatch):
         """Login → Dashboard → Logout → Redirect to login."""
         monkeypatch.setenv("ADMIN_USERNAME", "admin")
         monkeypatch.setenv("ADMIN_PASSWORD", "testpass123")
         monkeypatch.setenv("ADMIN_SECRET_KEY", "test-secret")
+        # ה-reload מריץ את config.py מחדש — DB_PATH מה-env חייב להצביע
+        # על ה-DB שה-fixture real_db אתחל (ראה admin_client על אותו דפוס).
+        monkeypatch.setenv("DB_PATH", str(tmp_path / "integration_test.db"))
 
         import config as _root_config
         importlib.reload(_root_config)
@@ -1086,11 +1095,14 @@ class TestAdminDashboard:
             response = client.get("/")
             assert response.status_code == 302
 
-    def test_wrong_credentials_rejected(self, real_db, monkeypatch):
+    def test_wrong_credentials_rejected(self, real_db, tmp_path, monkeypatch):
         """פרטים שגויים — לא מתחבר."""
         monkeypatch.setenv("ADMIN_USERNAME", "admin")
         monkeypatch.setenv("ADMIN_PASSWORD", "correct_pass")
         monkeypatch.setenv("ADMIN_SECRET_KEY", "test-secret")
+        # ה-reload מריץ את config.py מחדש — DB_PATH מה-env חייב להצביע
+        # על ה-DB שה-fixture real_db אתחל (ראה admin_client על אותו דפוס).
+        monkeypatch.setenv("DB_PATH", str(tmp_path / "integration_test.db"))
 
         import config as _root_config
         importlib.reload(_root_config)

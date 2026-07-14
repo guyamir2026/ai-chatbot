@@ -1,0 +1,128 @@
+{% extends "base.html" %}
+
+{% block title %}ניהול פלטפורמה{% endblock %}
+
+{% block content %}
+<div class="page-header" style="display: flex; align-items: flex-start; justify-content: space-between; gap: 1rem; flex-wrap: wrap;">
+    <div>
+        <h1><i class="bi bi-diagram-3"></i> ניהול פלטפורמה</h1>
+        <p class="page-subtitle">כל ה-tenants הרשומים. "פעל-כ" מעביר את הפאנל כולו לעבוד על העסק הנבחר.</p>
+    </div>
+    <a href="{{ url_for('platform_new_tenant') }}" class="btn btn-primary">
+        <i class="bi bi-plus-circle"></i> לקוח חדש
+    </a>
+</div>
+
+{% if acting_tenant %}
+<div class="card" style="margin-bottom: 1rem; border-right: 4px solid var(--warning);">
+    <div class="card-body" style="display: flex; align-items: center; justify-content: space-between; gap: 1rem;">
+        <span><i class="bi bi-person-badge"></i> אתה פועל כעת כ-<strong>{{ acting_tenant }}</strong></span>
+        <form method="POST" action="{{ url_for('platform_act_as_clear') }}" style="margin: 0;">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <button type="submit" class="btn btn-secondary btn-sm">חזרה לתצוגת פלטפורמה</button>
+        </form>
+    </div>
+</div>
+{% endif %}
+
+<div class="card">
+    <div class="card-body" style="overflow-x: auto;">
+        {% if not tenants %}
+        <p class="text-muted">אין tenants רשומים עדיין. יצירה דרך ה-CLI:
+            <code dir="ltr">python -m platform_cli create-tenant &lt;slug&gt; "&lt;שם&gt;"</code>
+        </p>
+        {% else %}
+        <table class="table">
+            <thead>
+                <tr>
+                    <th>מזהה</th>
+                    <th>שם עסק</th>
+                    <th>סטטוס</th>
+                    <th>חבילה</th>
+                    <th>ערוצים</th>
+                    <th>נוצר</th>
+                    <th>פעולות</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for t in tenants %}
+                <tr>
+                    <td><code>{{ t.tenant_id }}</code></td>
+                    <td>{{ t.display_name }}</td>
+                    <td>
+                        {% if t.status == 'active' %}
+                        <span class="badge badge-success">פעיל</span>
+                        {% elif t.status == 'suspended' %}
+                        <span class="badge badge-danger">מושעה</span>
+                        {% else %}
+                        <span class="badge badge-warning">בהגירה</span>
+                        {% endif %}
+                    </td>
+                    <td>{{ t.plan }}</td>
+                    <td>
+                        {% if t.has_telegram %}<i class="bi bi-telegram" title="Telegram מחובר"></i>{% endif %}
+                        {% if t.has_twilio %}<i class="bi bi-whatsapp" title="WhatsApp מחובר"></i>{% endif %}
+                        {% if t.has_widget %}<i class="bi bi-globe" title="Widget פעיל"></i>{% endif %}
+                        {% if not (t.has_telegram or t.has_twilio or t.has_widget) %}
+                        <span class="text-muted">—</span>
+                        {% endif %}
+                        {# הערוץ הנעול — נקבע אוטומטית בחיבור הראשון #}
+                        {% if t.channel == 'telegram' %}
+                        <span class="badge badge-primary" title="הערוץ נעול ל-Telegram">Telegram <i class="bi bi-lock-fill"></i></span>
+                        {% elif t.channel == 'whatsapp' %}
+                        <span class="badge badge-success" title="הערוץ נעול ל-WhatsApp">WhatsApp <i class="bi bi-lock-fill"></i></span>
+                        {% endif %}
+                    </td>
+                    <td>{{ t.created_at | il_datetime }}</td>
+                    <td style="display: flex; gap: 0.5rem; flex-wrap: wrap;">
+                        {% if t.status == 'active' %}
+                        <form method="POST" action="{{ url_for('platform_act_as', tenant_id=t.tenant_id) }}" style="margin: 0;">
+                            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                            <button type="submit" class="btn btn-primary btn-sm"
+                                    {% if acting_tenant == t.tenant_id %}disabled{% endif %}>
+                                <i class="bi bi-box-arrow-in-left"></i> פעל-כ
+                            </button>
+                        </form>
+                        <form method="POST" action="{{ url_for('platform_tenant_status', tenant_id=t.tenant_id) }}" style="margin: 0;"
+                              onsubmit="return confirm('להשעות את {{ t.tenant_id }}? כל הגישה לנתונים שלו תיחסם.');">
+                            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                            <input type="hidden" name="status" value="suspended">
+                            <button type="submit" class="btn btn-danger btn-sm">השעה</button>
+                        </form>
+                        {% if t.channel %}
+                        <form method="POST" action="{{ url_for('platform_tenant_channel_unlock', tenant_id=t.tenant_id) }}" style="margin: 0;"
+                              onsubmit="return confirm('לשחרר את נעילת הערוץ של {{ t.tenant_id }}? שני מקטעי הערוצים ייפתחו; עם חיבור הערוץ החדש נתוני הערוץ הקודם יימחקו.');">
+                            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                            <button type="submit" class="btn btn-secondary btn-sm" title="פתיחת שני מקטעי הערוצים אצל הלקוח">
+                                <i class="bi bi-unlock"></i> שחרר ערוץ
+                            </button>
+                        </form>
+                        {% endif %}
+                        {% else %}
+                        <form method="POST" action="{{ url_for('platform_tenant_status', tenant_id=t.tenant_id) }}" style="margin: 0;">
+                            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                            <input type="hidden" name="status" value="active">
+                            <button type="submit" class="btn btn-success btn-sm">הפעל</button>
+                        </form>
+                        {% endif %}
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        {% endif %}
+    </div>
+</div>
+
+<div class="card" style="margin-top: 1rem;">
+    <div class="card-body">
+        <h3 style="margin-top: 0;"><i class="bi bi-terminal"></i> פעולות CLI</h3>
+        <p class="text-muted">יצירת tenants, סודות וחיבורי ערוצים מתבצעים מהטרמינל:</p>
+        <pre dir="ltr" style="overflow-x: auto;">python -m platform_cli create-tenant salon-a "מספרת דנה"
+python -m platform_cli set-secret salon-a telegram_bot_token
+python -m platform_cli connect-telegram salon-a
+python -m platform_cli create-admin owner@example.com salon-a
+python -m platform_cli show-urls salon-a</pre>
+    </div>
+</div>
+{% endblock %}

@@ -147,7 +147,7 @@ class TestProcessDueUsers:
 
     def test_in_progress_lock_prevents_double_extraction(self):
         """user_id כבר ב-_in_progress (cycle קודם תקוע) → דלג."""
-        background._in_progress.add("u1")  # סימולציה — תקוע
+        background._in_progress.add(("default", "u1"))  # סימולציה — תקוע
         messages = [_msg("user", "x", 60), _msg("assistant", "y", 45)]
         with patch.object(background.db, "get_users_with_pending_messages",
                           return_value=["u1"]), \
@@ -159,7 +159,7 @@ class TestProcessDueUsers:
             background._process_due_users()
             m_extract.assert_not_called()
         # ה-lock לא נמחק (כי לא נכנסנו ל-try) — צפוי
-        assert "u1" in background._in_progress
+        assert ("default", "u1") in background._in_progress
 
     def test_in_progress_released_after_extraction(self):
         """אחרי שה-extract רץ, user_id יוסר מ-_in_progress."""
@@ -173,7 +173,7 @@ class TestProcessDueUsers:
              patch.object(background, "run_extraction_for_user",
                           return_value={"status": "completed"}):
             background._process_due_users()
-        assert "u1" not in background._in_progress
+        assert ("default", "u1") not in background._in_progress
 
     def test_in_progress_released_even_on_exception(self):
         """גם אם extract זרק, ה-lock משוחרר ב-finally."""
@@ -187,7 +187,7 @@ class TestProcessDueUsers:
              patch.object(background, "run_extraction_for_user",
                           side_effect=RuntimeError("boom")):
             background._process_due_users()
-        assert "u1" not in background._in_progress
+        assert ("default", "u1") not in background._in_progress
 
     def test_failed_extraction_logged_not_raised(self):
         """run_extraction_for_user מחזיר status=failed → לא זורק."""
@@ -414,11 +414,21 @@ class TestBacklogProcessing:
             # call_count נשאר 2 (לא נקרא ל-extract)
             assert m_extract.call_count == 2
 
-    def test_backlog_with_active_conversation_skipped(self, db_conn):
+    def test_backlog_with_active_conversation_skipped(self, db_conn, monkeypatch):
         """80 הודעות backlog + הודעה אחרונה לפני 10 דקות → שיחה פעילה
         → לא לעבד את ה-backlog (idle check על MAX(created_at) של כל
         ההודעות, לא ה-batch)."""
         from datetime import datetime, timedelta, timezone
+
+        # override מפורש ל-autouse _default_idle (שמדמה idle של 45 דק):
+        # הטסט הזה בודק שיחה *פעילה*. היסטורית זה עבד בלי ה-override רק
+        # בגלל באג שני-המודולים של ai_chatbot (ה-patch של ה-autouse נבלע
+        # ב-wrapper) — אחרי איחוד ה-namespace ה-patch באמת תופס, ולכן
+        # הכוונה חייבת להיות מפורשת, כפי שמנחה ה-docstring של הקובץ.
+        monkeypatch.setattr(
+            background.db, "get_user_last_message_time",
+            lambda user_id: _utc_str(6),
+        )
 
         now = datetime.now(timezone.utc)
         for i in range(80):

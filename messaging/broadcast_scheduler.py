@@ -111,12 +111,30 @@ def _process_due_campaigns() -> None:
 
 def _scheduler_loop() -> None:
     """לולאת ה-scheduler. יוצאת כש-_scheduler_stop נקרא."""
+    from tenancy import tenant_context
+
     logger.info("broadcast_scheduler: started (poll=%ds)", _POLL_INTERVAL)
     while not _scheduler_stop.is_set():
+        # איטרציה על כל ה-tenants הפעילים (כשאין רישום — default בלבד).
+        # כשל אצל tenant אחד לא עוצר את השאר (כלל לולאות I/O ב-CLAUDE.md).
         try:
-            _process_due_campaigns()
+            from control_plane import list_schedulable_tenant_ids
+
+            tenant_ids = list_schedulable_tenant_ids()
         except Exception:
-            logger.error("broadcast_scheduler: loop iteration failed", exc_info=True)
+            logger.error("broadcast_scheduler: listing tenants failed", exc_info=True)
+            tenant_ids = []
+        for tenant_id in tenant_ids:
+            if _scheduler_stop.is_set():
+                break
+            try:
+                with tenant_context(tenant_id):
+                    _process_due_campaigns()
+            except Exception:
+                logger.error(
+                    "broadcast_scheduler: iteration failed (tenant=%s)",
+                    tenant_id, exc_info=True,
+                )
         _scheduler_stop.wait(_POLL_INTERVAL)
     logger.info("broadcast_scheduler: stopped")
 

@@ -117,7 +117,8 @@
                     <div><strong>חבילה פעילה:</strong>
                         <span class="plan-pill active">{{ plan_definition.display_name }}</span>
                     </div>
-                    <div style="margin-top: 0.5rem;"><strong>ערוץ צפוי:</strong> {{ plan_definition.channel }}</div>
+                    <div style="margin-top: 0.5rem;"><strong>ערוץ העסק:</strong>
+                        {{ tenant_channel or detected_channel or "לא הוגדר" }}</div>
                     <div><strong>תחילת חבילה:</strong> {{ subscription.plan_started_at | il_datetime if subscription.plan_started_at else "—" }}</div>
                 </div>
                 <div>

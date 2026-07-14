@@ -36,10 +36,7 @@ from ai_chatbot.intent import Intent, detect_intent_with_llm, get_direct_respons
 from ai_chatbot.business_hours import is_currently_open, get_weekly_schedule_text, get_out_of_office_agent_notice
 from ai_chatbot.config import (
     ADMIN_URL,
-    BUSINESS_NAME,
-    BUSINESS_PHONE,
-    BUSINESS_ADDRESS,
-    BUSINESS_WEBSITE,
+    get_business_config,
     TELEGRAM_OWNER_CHAT_ID,
     FALLBACK_RESPONSE,
     CONTEXT_WINDOW_SIZE,
@@ -480,13 +477,13 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # _html.escape לערכי קונפיג בודדים; sanitize_telegram_html לפלט LLM שלם
     if returning:
         welcome_text = (
-            f"😊 שמחים לראות אותך שוב ב-<b>{_html.escape(BUSINESS_NAME)}</b>!\n\n"
+            f"😊 שמחים לראות אותך שוב ב-<b>{_html.escape(get_business_config().name)}</b>!\n\n"
             f"איך אפשר לעזור הפעם?\n"
             f"פשוט כתבו את השאלה שלכם או השתמשו בכפתורים למטה! 👇"
         )
     else:
         welcome_text = (
-            f"👋 ברוכים הבאים ל-<b>{_html.escape(BUSINESS_NAME)}</b>!\n\n"
+            f"👋 ברוכים הבאים ל-<b>{_html.escape(get_business_config().name)}</b>!\n\n"
             f"אני העוזר הווירטואלי שלכם. אני יכול לעזור לכם עם:\n"
             f"• מידע על השירותים והמחירים שלנו\n"
             f"• בקשת תורים\n"
@@ -908,7 +905,8 @@ def _consent_message_text() -> str:
     bullet אחד מכמה), אישור גיל מועבר לטקסט הכפתור, מוזכר במפורש שזה
     תנאי לשימוש (לא אופציונלי).
     """
-    from config import BUSINESS_NAME, ADMIN_URL
+    from config import get_business_config, ADMIN_URL
+    BUSINESS_NAME = get_business_config().name
     base = (ADMIN_URL or "").rstrip("/")
     terms_link = f"{base}/legal/terms" if base else ""
     privacy_link = f"{base}/legal/privacy" if base else ""
@@ -1141,7 +1139,8 @@ def _generate_vcard_text() -> str:
             hours_parts.append(f"{d} {h['open_time']}-{h['close_time']}")
     hours_summary = " | ".join(hours_parts) if hours_parts else ""
 
-    escaped_name = _vcard_escape(BUSINESS_NAME)
+    _biz = get_business_config()
+    escaped_name = _vcard_escape(_biz.name)
 
     lines = [
         "BEGIN:VCARD",
@@ -1150,12 +1149,12 @@ def _generate_vcard_text() -> str:
         f"N:{escaped_name};;;;",
         f"ORG:{escaped_name}",
     ]
-    if BUSINESS_PHONE:
-        lines.append(f"TEL;TYPE=WORK,VOICE:{BUSINESS_PHONE}")
-    if BUSINESS_ADDRESS:
-        lines.append(f"ADR;TYPE=WORK:;;{_vcard_escape(BUSINESS_ADDRESS)};;;;")
-    if BUSINESS_WEBSITE:
-        lines.append(f"URL:{BUSINESS_WEBSITE}")
+    if _biz.phone:
+        lines.append(f"TEL;TYPE=WORK,VOICE:{_biz.phone}")
+    if _biz.address:
+        lines.append(f"ADR;TYPE=WORK:;;{_vcard_escape(_biz.address)};;;;")
+    if _biz.website:
+        lines.append(f"URL:{_biz.website}")
     if hours_summary:
         lines.append(f"NOTE:{_vcard_escape(hours_summary)}")
     lines.append("END:VCARD")
@@ -1168,7 +1167,7 @@ async def _save_contact_core(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
     vcard_content = _generate_vcard_text()
     vcard_file = BytesIO(vcard_content.encode("utf-8"))
-    vcard_file.name = f"{BUSINESS_NAME}.vcf"
+    vcard_file.name = f"{get_business_config().name}.vcf"
 
     db.save_message(user_id, display_name, "user", "📇 שמירת איש קשר")
 

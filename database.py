@@ -14,7 +14,10 @@ from typing import Optional
 
 logger = logging.getLogger(__name__)
 
-from ai_chatbot.config import DB_PATH, TONE_DEFINITIONS
+# DB_PATH מיובא לתאימות בלבד (טסטים ישנים עושים patch על database.DB_PATH);
+# הנתיב האפקטיבי נקבע ב-get_connection דרך tenancy.tenant_db_path().
+from ai_chatbot.config import DB_PATH, TONE_DEFINITIONS  # noqa: F401
+from tenancy import tenant_db_path
 
 
 @contextmanager
@@ -25,7 +28,10 @@ def get_connection():
     # check_same_thread=False נדרש כי Flask ו-asyncio משתמשים ב-threads שונים,
     # אבל ה-connection עצמו *אינו* thread-safe — השימוש הבטוח מובטח ע"י
     # context manager שפותח וסוגר חיבור בכל פעולה (ללא שיתוף בין threads).
-    conn = sqlite3.connect(str(DB_PATH), timeout=30, check_same_thread=False)
+    #
+    # multi-tenant (שלב 1): הנתיב נקבע לפי ה-tenant הנוכחי (tenancy.py).
+    # ה-tenant של ברירת המחדל ממופה ל-config.DB_PATH — התנהגות זהה לקודם.
+    conn = sqlite3.connect(str(tenant_db_path()), timeout=30, check_same_thread=False)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA journal_mode=WAL")
     conn.execute("PRAGMA busy_timeout=30000")
@@ -259,12 +265,18 @@ def init_db():
             INSERT OR IGNORE INTO vacation_mode (id) VALUES (1);
 
             -- הגדרות בוט — טון תקשורת וביטויים מותאמים (שורה בודדת — תמיד id=1)
+            -- עמודות business_phone/address/website — כרטיס הביקור פר-tenant
+            -- (ריק = fallback ל-env; ל-DB קיים הן מתווספות ב-migrations.py).
+            -- שם העסק אינו כאן — מקורו display_name ב-control plane (הקמה).
             CREATE TABLE IF NOT EXISTS bot_settings (
                 id              INTEGER PRIMARY KEY CHECK(id = 1),
                 tone            TEXT NOT NULL DEFAULT 'friendly'
                                     CHECK(tone IN ('none', 'friendly', 'formal', 'sales', 'luxury')),
                 custom_phrases  TEXT DEFAULT '',
                 custom_prompt   TEXT DEFAULT '',
+                business_phone  TEXT DEFAULT '',
+                business_address TEXT DEFAULT '',
+                business_website TEXT DEFAULT '',
                 reminder_enabled INTEGER DEFAULT 1,
                 reminder_time   TEXT DEFAULT '10:00',
                 second_reminder_enabled INTEGER DEFAULT 0,
@@ -1757,8 +1769,15 @@ def get_user_data_summary(user_id: str) -> dict:
 # כפולים, קצר מספיק שלא יחסום בקשת re-delete לגיטימית).
 _DELETION_IDEMPOTENCY_TTL_SECONDS = 60
 _DELETION_IDEMPOTENCY_MAX_TRACKED = 5_000
-_active_deletions: dict[str, float] = {}
+# מפתח: (tenant, user_id) — מחיקה אצל עסק אחד אינה חוסמת מחיקה אצל אחר.
+_active_deletions: dict[tuple[str, str], float] = {}
 _active_deletions_lock = threading.Lock()
+
+
+def _deletion_key(user_id: str) -> tuple[str, str]:
+    from tenancy import get_current_tenant
+
+    return (get_current_tenant(), user_id)
 
 
 def _is_deletion_in_progress(user_id: str) -> bool:
@@ -1767,30 +1786,32 @@ def _is_deletion_in_progress(user_id: str) -> bool:
     import time
     now = time.time()
     cutoff = now - _DELETION_IDEMPOTENCY_TTL_SECONDS
+    key = _deletion_key(user_id)
     with _active_deletions_lock:
-        # cleanup רשומות ישנות
-        stale = [uid for uid, ts in _active_deletions.items() if ts < cutoff]
-        for uid in stale:
-            del _active_deletions[uid]
+        # cleanup רשומות ישנות (על פני כל ה-tenants)
+        stale = [k for k, ts in _active_deletions.items() if ts < cutoff]
+        for k in stale:
+            del _active_deletions[k]
         # בדיקה
-        return user_id in _active_deletions
+        return key in _active_deletions
 
 
 def _mark_deletion_in_progress(user_id: str) -> None:
     """רושם user_id כמחיקה פעילה. כולל LRU eviction."""
     import time
+    key = _deletion_key(user_id)
     with _active_deletions_lock:
-        _active_deletions[user_id] = time.time()
+        _active_deletions[key] = time.time()
         # LRU eviction אם המפה גדלה מדי
         if len(_active_deletions) > _DELETION_IDEMPOTENCY_MAX_TRACKED:
             oldest = min(_active_deletions.items(), key=lambda kv: kv[1])[0]
-            if oldest != user_id:
+            if oldest != key:
                 del _active_deletions[oldest]
 
 
 def _clear_deletion_in_progress(user_id: str) -> None:
     with _active_deletions_lock:
-        _active_deletions.pop(user_id, None)
+        _active_deletions.pop(_deletion_key(user_id), None)
 
 
 def delete_user_data(user_id: str) -> dict:
@@ -4080,6 +4101,8 @@ def get_bot_settings() -> dict:
         # fallback — לא אמור לקרות כי init_db מכניס שורה
         return {"id": 1, "tone": "friendly", "custom_phrases": "",
                 "custom_prompt": "", "full_system_prompt": "",
+                "business_phone": "", "business_address": "",
+                "business_website": "",
                 "reminder_enabled": 1, "reminder_time": "10:00",
                 "second_reminder_enabled": 0,
                 "second_reminder_hours": 2.0,
@@ -4181,6 +4204,29 @@ def update_full_system_prompt(full_system_prompt: str) -> None:
                SET full_system_prompt = ?, updated_at = datetime('now')
                WHERE id = 1""",
             (full_system_prompt,),
+        )
+
+
+def update_business_identity(
+    phone: str | None = None,
+    address: str | None = None,
+    website: str | None = None,
+) -> None:
+    """עדכון פרטי כרטיס הביקור של ה-tenant (טלפון/כתובת/אתר).
+
+    None = לא לגעת בשדה; מחרוזת ריקה = ניקוי מפורש (חוזרים ל-fallback של env).
+    הערכים נצרכים בזמן-ריצה דרך config.get_business_config(). שם העסק אינו
+    כאן — מקורו display_name ב-control plane (נקבע בהקמה).
+    """
+    with get_connection() as conn:
+        conn.execute(
+            """UPDATE bot_settings
+               SET business_phone = COALESCE(?, business_phone),
+                   business_address = COALESCE(?, business_address),
+                   business_website = COALESCE(?, business_website),
+                   updated_at = datetime('now')
+               WHERE id = 1""",
+            (phone, address, website),
         )
 
 

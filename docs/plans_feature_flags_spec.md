@@ -207,7 +207,17 @@ def reset_feature_to_plan_default(feature_name: str) -> None: ...
 
 ### 2.4 בדיקת ערוץ (Telegram vs WhatsApp) + התראת מפתח (אושר)
 
-החבילה קובעת ערוץ אבל **לא** אוכפת אותו ברמת קוד. הסיבה: בחירת הערוץ בפועל היא env-var ב-startup (`messaging/telegram_adapter.py` או `whatsapp_adapter.py`). אם זוהה mismatch — זה לא ייחסם, אבל **נשלחת התראה אקטיבית למפתח** כדי שלא נפספס.
+> **הוסר (מיגרציית multi-tenant, יולי 2026).** הערוץ כבר **אינו** מאפיין של
+> חבילה — `PLANS` לא מגדיר `channel`. הערוץ הוא מאפיין פר-tenant
+> (`subscription.channel` ב-DB של ה-tenant, `feature_flags.get_channel/set_channel`):
+> הוא נקבע **אוטומטית** בחיבור הערוץ הראשון ב"הגדרות תשתית" ונועל את הערוץ
+> השני; שחרור — מנהל הפלטפורמה ב-`/platform`; במעבר ערוץ נתוני הערוץ הקודם
+> נמחקים (`control_plane.delete_tenant_channel_data`). לכן התראת ה-mismatch
+> (חבילה מול env) איבדה את נקודת הייחוס והוסרה מ-`developer_alerts.py` ומ-
+> `main.py`. ‏`detect_active_channel` נשאר כ-fallback תצוגתי ל-tenant של
+> ברירת המחדל בלבד. התיאור להלן נשמר כרקע היסטורי.
+
+החבילה קבעה ערוץ אבל **לא** אכפה אותו ברמת קוד. הסיבה: בחירת הערוץ בפועל היא env-var ב-startup (`messaging/telegram_adapter.py` או `whatsapp_adapter.py`). אם זוהה mismatch — זה לא נחסם, אבל **נשלחה התראה אקטיבית למפתח** כדי שלא נפספס.
 
 **מנגנון**:
 

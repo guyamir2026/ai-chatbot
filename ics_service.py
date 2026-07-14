@@ -11,7 +11,7 @@ import logging
 import uuid
 from datetime import datetime, timedelta
 
-from config import BUSINESS_NAME, BUSINESS_ADDRESS
+from config import get_business_config
 import database as db
 
 logger = logging.getLogger(__name__)
@@ -95,11 +95,12 @@ def generate_ics(
     dtstart_str = dt_start.strftime(fmt)
     dtend_str = dt_end.strftime(fmt)
 
-    summary = f"{service} — {BUSINESS_NAME}"
-    uid = f"{uuid.uuid4()}@{BUSINESS_NAME.replace(' ', '-')}"
+    _biz = get_business_config()
+    summary = f"{service} — {_biz.name}"
+    uid = f"{uuid.uuid4()}@{_biz.name.replace(' ', '-')}"
     dtstamp = datetime.utcnow().strftime(fmt) + "Z"
 
-    location = BUSINESS_ADDRESS or ""
+    location = _biz.address or ""
 
     # בניית תוכן הקובץ ידנית — ללא תלות בספרייה חיצונית
     lines = [
@@ -183,11 +184,12 @@ def build_ics_preview(
 
     dt_end = dt_start + timedelta(minutes=duration_minutes)
 
+    _biz = get_business_config()
     return {
-        "summary": f"{service} — {BUSINESS_NAME}",
+        "summary": f"{service} — {_biz.name}",
         "dtstart": dt_start.strftime("%d/%m/%Y %H:%M"),
         "dtend": dt_end.strftime("%d/%m/%Y %H:%M"),
-        "location": BUSINESS_ADDRESS or "(לא הוגדרה כתובת)",
+        "location": _biz.address or "(לא הוגדרה כתובת)",
         "reminder": f"{REMINDER_MINUTES_BEFORE} דקות לפני",
     }
 

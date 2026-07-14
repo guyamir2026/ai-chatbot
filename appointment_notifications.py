@@ -14,7 +14,7 @@ from html import escape as _esc
 
 from live_chat_service import send_telegram_message, send_telegram_document, send_message_by_channel
 from messaging.formatter import format_message
-from config import BUSINESS_NAME
+from config import get_business_config
 import database as db
 
 logger = logging.getLogger(__name__)
@@ -68,7 +68,7 @@ def _build_confirmed_message(
         time_line = f"🕐 <b>שעה:</b> {_esc(time)}"
 
     lines = [
-        f"התור שלך ב{_esc(BUSINESS_NAME)} אושר ✅",
+        f"התור שלך ב{_esc(get_business_config().name)} אושר ✅",
         "",
         f"📋 <b>שירות:</b> {_esc(service)}",
         f"📅 <b>תאריך:</b> {_esc(date_display)}",
@@ -89,7 +89,7 @@ def _build_cancelled_message(
     """בניית הודעת ביטול תור."""
     date_display = _format_date_short(date)
     lines = [
-        f"😑 התור שלך ב{_esc(BUSINESS_NAME)} בוטל",
+        f"😑 התור שלך ב{_esc(get_business_config().name)} בוטל",
         "",
         f"📋 <b>שירות:</b> {_esc(service)}",
         f"📅 <b>תאריך:</b> {_esc(date_display)}",
@@ -227,7 +227,7 @@ def _send_ics_file(appt: dict, channel: str) -> None:
             preferred_date=preferred_date,
             preferred_time=preferred_time,
             duration_minutes=duration,
-            description=f"תור ב{BUSINESS_NAME}",
+            description=f"תור ב{get_business_config().name}",
         )
         filename = generate_ics_filename(preferred_date)
         caption = "📅 לחצו על הקובץ כדי להוסיף את התור ליומן שלכם"
@@ -254,7 +254,8 @@ def _send_ics_file(appt: dict, channel: str) -> None:
                 user_id=user_id,
                 page_type="whatsapp_fallback",
             )
-            page_url = f"{ADMIN_URL.rstrip('/')}/ics/{page_id}"
+            from public_urls import public_ics_url
+            page_url = public_ics_url(page_id)
             body = f"📅 להוספת התור ליומן שלכם:\n{page_url}"
             from messaging.whatsapp_sender import send_whatsapp
             send_whatsapp(user_id, body)
@@ -314,9 +315,9 @@ def _build_reminder_message(
 ) -> str:
     """בניית הודעת תזכורת לתור. hours_before_display=None → תזכורת יום לפני, אחרת טקסט זמן לפני."""
     if hours_before_display is not None:
-        header = f"🔔 תזכורת: יש לך תור עוד {hours_before_display} ב{_esc(BUSINESS_NAME)}!"
+        header = f"🔔 תזכורת: יש לך תור עוד {hours_before_display} ב{_esc(get_business_config().name)}!"
     else:
-        header = f"🔔 תזכורת: יש לך תור מחר ב{_esc(BUSINESS_NAME)}!"
+        header = f"🔔 תזכורת: יש לך תור מחר ב{_esc(get_business_config().name)}!"
     date_display = _format_date_short(date)
     lines = [
         header,

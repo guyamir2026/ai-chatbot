@@ -15,15 +15,18 @@ from datetime import datetime, date, time, timedelta
 from zoneinfo import ZoneInfo
 
 from google.oauth2.credentials import Credentials
-from google_auth_oauthlib.flow import Flow
 from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
+
+# הערה: `Flow` (google_auth_oauthlib) ו-`Request` (google.auth.transport.
+# requests) מיובאים **עצלה** בתוך הפונקציות שמשתמשות בהם — הם מושכים את
+# חבילת ה-requests המלאה, וייבוא-על יימנע מטעינת המודול בהקשרים שלא
+# מריצים בפועל את זרימת ה-OAuth (למשל keep-alive שרק מרענן טוקן).
 
 from ai_chatbot.config import (
     GOOGLE_CLIENT_ID,
     GOOGLE_CLIENT_SECRET,
     GOOGLE_REDIRECT_URI,
-    BUSINESS_NAME,
 )
 import database as db
 
@@ -101,8 +104,10 @@ def _notify_owner_calendar_disconnected() -> None:
 # ── OAuth Flow ─────────────────────────────────────────────────────────────
 
 
-def get_oauth_flow() -> Flow:
+def get_oauth_flow():
     """יצירת OAuth flow לחיבור Google Calendar."""
+    from google_auth_oauthlib.flow import Flow
+
     client_config = {
         "web": {
             "client_id": GOOGLE_CLIENT_ID,
@@ -248,6 +253,90 @@ def _get_credentials() -> Credentials | None:
             return None
 
     return creds
+
+
+def refresh_tenant_calendar_token() -> str:
+    """‏Keep-alive: מרענן את טוקן ה-Google של ה-tenant הנוכחי **בכפייה**.
+
+    מטרה כפולה (spec §3.4): (1) לאפס את שעון "לא-בשימוש 6 חודשים" של
+    Google כדי שהטוקן לא יפוג ב-tenant שקט; (2) לגלות ניתוק (revoke)
+    מוקדם — במקום לגלות רק כשלקוח מנסה לקבוע תור. על כשל refresh —
+    מסמן auth_invalid + מפעיל את התראת בעל העסק הקיימת.
+
+    מחזיר: 'refreshed' | 'not_connected' | 'auth_invalid' | 'transient'.
+    """
+    cred_data = db.get_google_calendar_credentials()
+    if not cred_data or not cred_data.get("refresh_token"):
+        return "not_connected"
+
+    creds = Credentials(
+        token=cred_data.get("access_token", ""),
+        refresh_token=cred_data["refresh_token"],
+        token_uri="https://oauth2.googleapis.com/token",
+        client_id=GOOGLE_CLIENT_ID,
+        client_secret=GOOGLE_CLIENT_SECRET,
+    )
+    from google.auth.transport.requests import Request
+    from google.auth.exceptions import RefreshError
+
+    try:
+        creds.refresh(Request())
+    except RefreshError:
+        logger.error("keep-alive: refresh נכשל (revoked/expired)", exc_info=True)
+        try:
+            db.set_google_calendar_auth_invalid()
+            creds_after = db.get_google_calendar_credentials()
+            if creds_after and not creds_after.get("owner_alert_sent_at"):
+                _notify_owner_calendar_disconnected()
+        except Exception:
+            logger.error("keep-alive: סימון auth_invalid נכשל", exc_info=True)
+        return "auth_invalid"
+    except Exception:
+        # רשת/timeout — לא מסמנים invalid, ננסה שוב בריצה הבאה
+        logger.error("keep-alive: refresh נכשל (transient)", exc_info=True)
+        return "transient"
+
+    db.update_google_calendar_token(
+        access_token=creds.token,
+        token_expiry=creds.expiry.isoformat() if creds.expiry else "",
+    )
+    try:
+        if db.is_google_calendar_auth_invalid():
+            db.clear_google_calendar_auth_invalid()
+    except Exception:
+        logger.error("keep-alive: איפוס דגל auth_invalid נכשל", exc_info=True)
+    return "refreshed"
+
+
+def refresh_all_tenant_calendars() -> dict:
+    """מריץ keep-alive לכל ה-tenants הפעילים. מחזיר מונים לפי תוצאה.
+
+    כשל אצל tenant אחד לא עוצר את השאר (כלל לולאות I/O ב-CLAUDE.md).
+    נקרא מ-scheduler הפלטפורמה (platform_maintenance), שבועית.
+    """
+    from tenancy import tenant_context
+
+    counts = {"refreshed": 0, "not_connected": 0, "auth_invalid": 0, "transient": 0}
+    try:
+        from control_plane import list_schedulable_tenant_ids
+
+        tenant_ids = list_schedulable_tenant_ids()
+    except Exception:
+        logger.error("refresh_all_tenant_calendars: listing tenants failed", exc_info=True)
+        return counts
+
+    for tenant_id in tenant_ids:
+        try:
+            with tenant_context(tenant_id):
+                result = refresh_tenant_calendar_token()
+            counts[result] = counts.get(result, 0) + 1
+        except Exception:
+            logger.error(
+                "refresh_all_tenant_calendars: כשל ב-tenant %s", tenant_id,
+                exc_info=True,
+            )
+    logger.info("Calendar keep-alive across tenants: %s", counts)
+    return counts
 
 
 def _get_calendar_service():

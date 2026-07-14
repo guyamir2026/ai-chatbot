@@ -44,14 +44,18 @@ ALL_FEATURES: frozenset[str] = frozenset({
 })
 
 # ── הגדרת 3 החבילות ──────────────────────────────────────────────────────
-# `channel`         — ערוץ צפוי לפריסה (לא נאכף; משמש להתראת startup mismatch)
 # `grace_period_days` — ימי חסד לשינויים ידניים אחרי תחילת/שדרוג חבילה
 # `features`        — ברירות מחדל של feature flags
+# הערה: הערוץ (telegram/whatsapp) **אינו** מאפיין של חבילה — הוא מאפיין
+# פר-tenant שנקבע אוטומטית בחיבור הערוץ הראשון (subscription.channel,
+# ראה feature_flags.get_channel/set_channel).
 PLANS: dict[str, dict[str, Any]] = {
     PLAN_BASIC: {
         "display_name": "בסיסית",
-        "channel": "telegram",
         "grace_period_days": 15,
+        # מודל ה-LLM של החבילה. ריק = ברירת המחדל מ-env (OPENAI_MODEL).
+        # שדרוג = חבילה עם מודל חזק יותר. ראה get_llm_model ב-feature_flags.
+        "llm_model": "",
         "features": {
             FEATURE_CALENDAR_SYNC: True,
             FEATURE_FOLLOWUP_24H: False,
@@ -62,8 +66,8 @@ PLANS: dict[str, dict[str, Any]] = {
     },
     PLAN_ADVANCED: {
         "display_name": "מתקדם",
-        "channel": "whatsapp",
         "grace_period_days": 15,
+        "llm_model": "",
         "features": {
             FEATURE_CALENDAR_SYNC: True,
             FEATURE_FOLLOWUP_24H: True,
@@ -74,8 +78,8 @@ PLANS: dict[str, dict[str, Any]] = {
     },
     PLAN_PREMIUM: {
         "display_name": "מקצועי",
-        "channel": "whatsapp",
         "grace_period_days": 30,
+        "llm_model": "",
         "features": {
             FEATURE_CALENDAR_SYNC: True,
             FEATURE_FOLLOWUP_24H: True,

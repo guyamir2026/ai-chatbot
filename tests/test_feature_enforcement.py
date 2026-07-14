@@ -324,7 +324,7 @@ class TestDeveloperAlerts:
     def test_detect_dual_channel_returns_none(self, tmp_path, monkeypatch):
         """
         סביבת בדיקות שבה גם Telegram וגם Twilio מוגדרים — מוחזר None
-        כדי שלא ייווצר false-positive mismatch ב-startup על כל חבילה.
+        (אין ערוץ יחיד מזוהה; ה-preview נופל אז ל-telegram).
         """
         monkeypatch.setenv("DATA_DIR", str(tmp_path))
         monkeypatch.setenv("DB_PATH", str(tmp_path / "test.db"))
@@ -340,119 +340,10 @@ class TestDeveloperAlerts:
         importlib.reload(developer_alerts)
         assert developer_alerts.detect_active_channel() is None
 
-    def test_dual_channel_no_mismatch_alert(self, tmp_path, monkeypatch):
-        """כששני הערוצים מוגדרים — לא נשלחת התראת mismatch לאף חבילה."""
-        monkeypatch.setenv("DATA_DIR", str(tmp_path))
-        monkeypatch.setenv("DB_PATH", str(tmp_path / "test.db"))
-        monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "fake-token")
-        monkeypatch.setenv("TWILIO_ACCOUNT_SID", "AC123")
-        monkeypatch.setenv("TWILIO_AUTH_TOKEN", "tok")
-        monkeypatch.setenv("TWILIO_WHATSAPP_NUMBER", "whatsapp:+972000")
-        monkeypatch.setenv("DEVELOPER_TELEGRAM_CHAT_ID", "987654321")
-        import config as _root_config
-        importlib.reload(_root_config)
-        import ai_chatbot.config as _cfg
-        importlib.reload(_cfg)
-        import database
-        importlib.reload(database)
-        database.init_db()
-        import feature_flags
-        importlib.reload(feature_flags)
-        # premium = WhatsApp expected — היה "telegram" ב-detect הישן ⇒ mismatch
-        feature_flags.set_plan("premium", reason="test dual channel")
-        import developer_alerts
-        importlib.reload(developer_alerts)
-
-        sent_calls = []
-        monkeypatch.setattr(
-            developer_alerts, "_send_telegram",
-            lambda *a, **k: sent_calls.append(a) or True,
-        )
-
-        summary = developer_alerts.check_and_alert_channel_mismatch()
-        assert summary is not None
-        assert summary["actual_channel"] is None  # dual-channel
-        assert summary["is_mismatch"] is False
-        assert summary["alert_sent"] is False
-        assert sent_calls == []
-
-    def test_check_alerts_on_mismatch(self, tmp_path, monkeypatch):
-        # החבילה basic (ערוץ צפוי = telegram), אבל בפועל רק WhatsApp
-        monkeypatch.setenv("DATA_DIR", str(tmp_path))
-        monkeypatch.setenv("DB_PATH", str(tmp_path / "test.db"))
-        monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "")
-        monkeypatch.setenv("TWILIO_ACCOUNT_SID", "AC123")
-        monkeypatch.setenv("TWILIO_AUTH_TOKEN", "tok")
-        monkeypatch.setenv("TWILIO_WHATSAPP_NUMBER", "whatsapp:+972000")
-        monkeypatch.setenv("DEVELOPER_TELEGRAM_CHAT_ID", "987654321")
-        import config as _root_config
-        importlib.reload(_root_config)
-        import ai_chatbot.config as _cfg
-        importlib.reload(_cfg)
-        import database
-        importlib.reload(database)
-        database.init_db()
-        import feature_flags
-        importlib.reload(feature_flags)
-        # ברירת המחדל premium — קובעים basic (ערוץ צפוי=telegram) ליצירת mismatch מול WhatsApp
-        feature_flags.set_plan("basic", reason="test")
-        assert feature_flags.get_current_plan() == "basic"
-        import developer_alerts
-        importlib.reload(developer_alerts)
-
-        sent_calls = []
-
-        def _fake_send(chat_id, text):
-            sent_calls.append((chat_id, text))
-            return True
-
-        monkeypatch.setattr(developer_alerts, "_send_telegram", _fake_send)
-
-        summary = developer_alerts.check_and_alert_channel_mismatch()
-        assert summary is not None
-        assert summary["plan"] == "basic"
-        assert summary["expected_channel"] == "telegram"
-        assert summary["actual_channel"] == "whatsapp"
-        assert summary["is_mismatch"] is True
-        assert summary["alert_sent"] is True
-        # התראה הכילה את שני הערוצים
-        assert "telegram" in sent_calls[0][1]
-        assert "whatsapp" in sent_calls[0][1]
-
-    def test_check_no_alert_on_match(self, tmp_path, monkeypatch):
-        # החבילה basic (telegram) + רק TELEGRAM_BOT_TOKEN מוגדר → אין mismatch
-        monkeypatch.setenv("DATA_DIR", str(tmp_path))
-        monkeypatch.setenv("DB_PATH", str(tmp_path / "test.db"))
-        monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "fake")
-        monkeypatch.setenv("TWILIO_ACCOUNT_SID", "")
-        monkeypatch.setenv("TWILIO_AUTH_TOKEN", "")
-        monkeypatch.setenv("TWILIO_WHATSAPP_NUMBER", "")
-        monkeypatch.setenv("DEVELOPER_TELEGRAM_CHAT_ID", "987654321")
-        import config as _root_config
-        importlib.reload(_root_config)
-        import ai_chatbot.config as _cfg
-        importlib.reload(_cfg)
-        import database
-        importlib.reload(database)
-        database.init_db()
-        import feature_flags
-        importlib.reload(feature_flags)
-        # ברירת המחדל premium (ערוץ צפוי=whatsapp) — קובעים basic כדי שהערוץ
-        # הצפוי=telegram יתאים ל-TELEGRAM_BOT_TOKEN המוגדר → אין mismatch.
-        feature_flags.set_plan("basic", reason="test")
-        import developer_alerts
-        importlib.reload(developer_alerts)
-
-        sent_calls = []
-        monkeypatch.setattr(
-            developer_alerts, "_send_telegram",
-            lambda *a, **k: sent_calls.append(a) or True,
-        )
-
-        summary = developer_alerts.check_and_alert_channel_mismatch()
-        assert summary["is_mismatch"] is False
-        assert summary["alert_sent"] is False
-        assert sent_calls == []
+    # הערה: התראת ה-channel-mismatch (חבילה מול env) הוסרה — הערוץ כבר
+    # אינו מאפיין של חבילה אלא של tenant (subscription.channel, נעילה
+    # אוטומטית בחיבור הראשון). detect_active_channel נשאר כ-fallback
+    # תצוגתי בלבד ל-tenant של ברירת המחדל.
 
 
 # ── page_type לעמוד fallback ──────────────────────────────────────────────

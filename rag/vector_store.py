@@ -4,6 +4,8 @@ Vector Store module — FAISS-based vector index for similarity search.
 
 import json
 import logging
+import threading
+from collections import OrderedDict
 from pathlib import Path
 from typing import Optional
 
@@ -15,7 +17,8 @@ except ImportError:
     faiss = None
     logging.warning("FAISS not installed. Install with: pip install faiss-cpu")
 
-from ai_chatbot.config import FAISS_INDEX_PATH, RAG_TOP_K, RAG_MIN_RELEVANCE
+from ai_chatbot.config import RAG_TOP_K, RAG_MIN_RELEVANCE
+from tenancy import get_current_tenant, tenant_faiss_dir
 
 logger = logging.getLogger(__name__)
 
@@ -122,12 +125,12 @@ class VectorStore:
         return results
     
     def save(self, path: str = None):
-        """Save the index and metadata to disk."""
+        """Save the index and metadata to disk (לתיקיית ה-tenant הנוכחי)."""
         if self.index is None:
             logger.warning("No index to save.")
             return
-        
-        save_path = Path(path or FAISS_INDEX_PATH)
+
+        save_path = Path(path or tenant_faiss_dir())
         save_path.mkdir(parents=True, exist_ok=True)
         
         faiss.write_index(self.index, str(save_path / "index.faiss"))
@@ -147,7 +150,7 @@ class VectorStore:
         Returns:
             True if loaded successfully, False otherwise.
         """
-        load_path = Path(path or FAISS_INDEX_PATH)
+        load_path = Path(path or tenant_faiss_dir())
         
         index_file = load_path / "index.faiss"
         metadata_json_file = load_path / "metadata.json"
@@ -184,21 +187,42 @@ class VectorStore:
             return False
 
 
-# Global singleton instance
-_store: Optional[VectorStore] = None
+# ─── Registry פר-tenant (multi-tenant שלב 2) ────────────────────────────
+# במקום singleton יחיד — מילון tenant→VectorStore עם LRU: אינדקסים "חמים"
+# נשארים בזיכרון, והישן ביותר מפונה כשעוברים את התקרה. ה-KB של עסק קטן
+# הוא עשרות רשומות, כך שגם עשרות אינדקסים חמים הם זיכרון זניח — התקרה
+# היא בעיקר קו הגנה מפני גדילה בלתי מוגבלת.
+_MAX_HOT_STORES = 32
+_stores: OrderedDict[str, VectorStore] = OrderedDict()
+_stores_lock = threading.Lock()
 
 
 def get_vector_store() -> VectorStore:
-    """Get or create the global VectorStore instance."""
-    global _store
-    if _store is None:
-        _store = VectorStore()
-        # Try to load from disk
-        _store.load()
-    return _store
+    """ה-VectorStore של ה-tenant הנוכחי (נטען עצלה, LRU בין tenants)."""
+    tenant = get_current_tenant()
+    with _stores_lock:
+        store = _stores.get(tenant)
+        if store is not None:
+            _stores.move_to_end(tenant)
+            return store
+    # טעינה מחוץ ל-lock — קריאת דיסק של FAISS יכולה להיות איטית ואסור
+    # לחסום איתה tenants אחרים. במקרה קצה של מרוץ, שני threads יטענו
+    # ואחד ידרוס — זהה סמנטית (אותו קובץ), רק עבודה כפולה חד-פעמית.
+    store = VectorStore()
+    store.load()
+    with _stores_lock:
+        _stores[tenant] = store
+        _stores.move_to_end(tenant)
+        while len(_stores) > _MAX_HOT_STORES:
+            evicted, _ = _stores.popitem(last=False)
+            logger.info("vector store evicted from memory (LRU): tenant=%s", evicted)
+    return store
 
 
-def reset_vector_store():
-    """Reset the global VectorStore (forces rebuild on next use)."""
-    global _store
-    _store = None
+def reset_vector_store(all_tenants: bool = False):
+    """איפוס ה-store של ה-tenant הנוכחי (או כולם) — טעינה מחדש בשימוש הבא."""
+    with _stores_lock:
+        if all_tenants:
+            _stores.clear()
+        else:
+            _stores.pop(get_current_tenant(), None)

@@ -20,7 +20,7 @@ from ai_chatbot.config import (
     SMTP_PORT,
     SMTP_USER,
     SMTP_PASSWORD,
-    BUSINESS_NAME,
+    get_business_config,
 )
 
 logger = logging.getLogger(__name__)
@@ -86,7 +86,7 @@ def _send_telegram(
     text = (
         f"🐛 *דיווח באג חדש*\n"
         f"━━━━━━━━━━━━━━━━━━\n"
-        f"*עסק:* {_escape_markdown(BUSINESS_NAME)}\n"
+        f"*עסק:* {_escape_markdown(get_business_config().name)}\n"
         f"*מזהה:* \\#{report_id}\n\n"
         f"{_escape_markdown(description)}"
     )
@@ -163,14 +163,14 @@ def _send_email(
     """שליחת דיווח באג למייל המפתח עם צילומי מסך כצרופות."""
     try:
         msg = EmailMessage()
-        msg["Subject"] = f"🐛 דיווח באג #{report_id} — {BUSINESS_NAME}"
+        msg["Subject"] = f"🐛 דיווח באג #{report_id} — {get_business_config().name}"
         msg["From"] = SMTP_USER or DEVELOPER_EMAIL
         msg["To"] = DEVELOPER_EMAIL
 
         body = (
             f"דיווח באג חדש\n"
             f"{'=' * 30}\n"
-            f"עסק: {BUSINESS_NAME}\n"
+            f"עסק: {get_business_config().name}\n"
             f"מזהה: #{report_id}\n\n"
             f"{description}"
         )

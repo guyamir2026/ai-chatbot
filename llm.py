@@ -12,17 +12,16 @@ import threading
 from ai_chatbot.openai_client import get_openai_client
 
 from ai_chatbot.config import (
-    OPENAI_MODEL,
     LLM_MAX_TOKENS,
     SOURCE_CITATION_PATTERN,
     FALLBACK_RESPONSE,
     CONTEXT_WINDOW_SIZE,
     SUMMARY_THRESHOLD,
     FOLLOW_UP_ENABLED,
-    BUSINESS_NAME,
     BUSINESS_ID,
     MEMORY_INJECTION_ENABLED,
     build_system_prompt,
+    get_business_config,
 )
 from ai_chatbot.rag.engine import retrieve, format_context
 from ai_chatbot import database as db
@@ -33,8 +32,16 @@ logger = logging.getLogger(__name__)
 # Per-user locks to prevent concurrent summarizations for the same user.
 # Bounded to _MAX_LOCKS entries; oldest unlocked entries are evicted when full.
 _MAX_LOCKS = 1000
-_summarize_locks: dict[str, threading.Lock] = {}
+# מפתח: (tenant, user_id) — סיכום שיחה של אותו לקוח אצל שני עסקים
+# הוא שתי עבודות נפרדות (multi-tenant שלב 2).
+_summarize_locks: dict[tuple[str, str], threading.Lock] = {}
 _summarize_locks_guard = threading.Lock()
+
+
+def _lock_key(user_id: str) -> tuple[str, str]:
+    from tenancy import get_current_tenant
+
+    return (get_current_tenant(), user_id)
 
 
 def _build_messages(
@@ -420,11 +427,14 @@ def _generate_summary(messages: list[dict], existing_summary: str = None) -> str
     try:
         client = get_openai_client()
         # ביטול thinking ל-Gemini 2.5 — ראה הערה ב-generate_answer
+        # המודל נבחר לפי חבילת ה-tenant (שדרוג) — ראה feature_flags.get_llm_model.
+        from ai_chatbot.feature_flags import get_llm_model
+        _model = get_llm_model()
         extra_kwargs = {}
-        if OPENAI_MODEL.startswith("gemini-2.5") or "thinking" in OPENAI_MODEL.lower():
+        if _model.startswith("gemini-2.5") or "thinking" in _model.lower():
             extra_kwargs["reasoning_effort"] = "none"
         response = client.chat.completions.create(
-            model=OPENAI_MODEL,
+            model=_model,
             messages=[{"role": "user", "content": summary_prompt}],
             temperature=0.3,
             max_tokens=500,
@@ -441,18 +451,19 @@ def _get_user_lock(user_id: str) -> threading.Lock:
 
     Evicts the oldest unlocked entries when the dict exceeds _MAX_LOCKS.
     """
+    key = _lock_key(user_id)
     with _summarize_locks_guard:
-        if user_id not in _summarize_locks:
+        if key not in _summarize_locks:
             # Evict stale unlocked entries if we've hit the cap
             if len(_summarize_locks) >= _MAX_LOCKS:
                 to_remove = [
-                    uid for uid, lock in _summarize_locks.items()
+                    k for k, lock in _summarize_locks.items()
                     if not lock.locked()
                 ]
-                for uid in to_remove[:len(_summarize_locks) - _MAX_LOCKS + 1]:
-                    del _summarize_locks[uid]
-            _summarize_locks[user_id] = threading.Lock()
-        return _summarize_locks[user_id]
+                for k in to_remove[:len(_summarize_locks) - _MAX_LOCKS + 1]:
+                    del _summarize_locks[k]
+            _summarize_locks[key] = threading.Lock()
+        return _summarize_locks[key]
 
 
 def maybe_summarize(user_id: str):
@@ -584,13 +595,16 @@ def generate_answer(
         # מעבירים את זה דרך extra_body של ה-OpenAI SDK — תוכנו ממוזג ישירות
         # ל-HTTP body. Gemini compat layer קורא את ה-key "google" ברמת ה-body.
         # ראה docs/truncation_investigation.md ו-https://ai.google.dev/gemini-api/docs/thinking
+        # המודל נבחר לפי חבילת ה-tenant (שדרוג) — feature_flags.get_llm_model.
+        from ai_chatbot.feature_flags import get_llm_model
+        _model = get_llm_model()
         extra_kwargs = {}
-        if OPENAI_MODEL.startswith("gemini-2.5") or "thinking" in OPENAI_MODEL.lower():
+        if _model.startswith("gemini-2.5") or "thinking" in _model.lower():
             # reasoning_effort הוא הפרמטר הסטנדרטי של OpenAI ש-Gemini compat
             # תומך בו ישירות ("none" = ללא thinking, שווה ערך ל-thinking_budget=0).
             extra_kwargs["reasoning_effort"] = "none"
         response = client.chat.completions.create(
-            model=OPENAI_MODEL,
+            model=_model,
             messages=messages,
             temperature=0.3,
             max_tokens=LLM_MAX_TOKENS,
@@ -612,7 +626,7 @@ def generate_answer(
         logger.info(
             "LLM diag: model=%s finish_reason=%s prompt_tokens=%d "
             "completion_tokens=%d max_tokens=%d chars=%d utf8_bytes=%d",
-            OPENAI_MODEL, finish_reason, prompt_tokens, comp_tokens,
+            _model, finish_reason, prompt_tokens, comp_tokens,
             LLM_MAX_TOKENS, len(raw_answer), len(raw_answer.encode("utf-8")),
         )
         # זיהוי קציצה: finish_reason='length' → תשובה נחתכה ב-max_tokens.
@@ -765,7 +779,7 @@ def generate_page_content(chatbot_response: str, title: str = "", rag_context: s
     logger.debug("generate_page_content data_block:\n%s", data_block[:2000])
 
     prompt = (
-        f"אתה מעצב תוכן לדף עסקי של {BUSINESS_NAME}.\n"
+        f"אתה מעצב תוכן לדף עסקי של {get_business_config().name}.\n"
         f"{title_hint}"
         "הפוך את הנתונים הבאים לתוכן HTML מעוצב לדף עסקי.\n\n"
         "כללים:\n"
@@ -786,11 +800,14 @@ def generate_page_content(chatbot_response: str, title: str = "", rag_context: s
     try:
         client = get_openai_client()
         # ביטול thinking ל-Gemini 2.5 — ראה הערה ב-generate_answer
+        # המודל נבחר לפי חבילת ה-tenant (שדרוג) — ראה feature_flags.get_llm_model.
+        from ai_chatbot.feature_flags import get_llm_model
+        _model = get_llm_model()
         extra_kwargs = {}
-        if OPENAI_MODEL.startswith("gemini-2.5") or "thinking" in OPENAI_MODEL.lower():
+        if _model.startswith("gemini-2.5") or "thinking" in _model.lower():
             extra_kwargs["reasoning_effort"] = "none"
         response = client.chat.completions.create(
-            model=OPENAI_MODEL,
+            model=_model,
             messages=[{"role": "user", "content": prompt}],
             temperature=0.2,
             # עמוד HTML דורש יותר tokens מתשובת צ'אט רגילה

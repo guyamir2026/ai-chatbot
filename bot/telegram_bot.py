@@ -82,6 +82,24 @@ def create_bot_application():
             "Please set it in your .env file or environment variables."
         )
     
+    def _with_default_tenant(job_func):
+        """עוטף job callback ב-tenant context של ברירת המחדל.
+
+        הבוט היחיד של התהליך משרת את ה-tenant ה-legacy. כשהבוטים יהפכו
+        פר-tenant (ראוטינג webhooks, שלב 2 המשך) — ה-jobs האלה יעברו
+        ל-scheduler הפלטפורמתי שמאתר על פני כל ה-tenants.
+        """
+        from functools import wraps
+
+        from tenancy import DEFAULT_TENANT, tenant_context
+
+        @wraps(job_func)
+        async def wrapped(context):
+            with tenant_context(DEFAULT_TENANT):
+                return await job_func(context)
+
+        return wrapped
+
     # שמירת רפרנס לבוט ול-event loop — משמש את broadcast_service לשליחת הודעות
     async def _post_init(application: Application) -> None:
         loop = asyncio.get_running_loop()
@@ -97,7 +115,7 @@ def create_bot_application():
                 logger.error("Periodic live chat cleanup failed: %s", e)
 
         application.job_queue.run_repeating(
-            _cleanup_expired_job,
+            _with_default_tenant(_cleanup_expired_job),
             interval=1800,  # 30 דקות
             first=60,       # ריצה ראשונה אחרי דקה (לא מיד ב-startup)
             name="live_chat_cleanup",
@@ -113,7 +131,7 @@ def create_bot_application():
                 logger.error("Appointment reminders job failed: %s", e)
 
         application.job_queue.run_repeating(
-            _appointment_reminders_job,
+            _with_default_tenant(_appointment_reminders_job),
             interval=1800,  # 30 דקות
             first=120,      # ריצה ראשונה אחרי 2 דקות
             name="appointment_reminders",
@@ -129,7 +147,7 @@ def create_bot_application():
                 logger.error("Second reminders job failed: %s", e)
 
         application.job_queue.run_repeating(
-            _second_reminders_job,
+            _with_default_tenant(_second_reminders_job),
             interval=1800,  # 30 דקות
             first=180,      # ריצה ראשונה אחרי 3 דקות
             name="second_reminders",
@@ -148,7 +166,7 @@ def create_bot_application():
                 logger.error("Retention purge job failed: %s", e)
 
         application.job_queue.run_repeating(
-            _retention_purge_job,
+            _with_default_tenant(_retention_purge_job),
             interval=24 * 3600,  # פעם ביממה
             first=300,           # ריצה ראשונה אחרי 5 דקות
             name="retention_purge",
@@ -160,7 +178,7 @@ def create_bot_application():
             from ai_chatbot.followup_service import process_pending_followups
 
             application.job_queue.run_repeating(
-                process_pending_followups,
+                _with_default_tenant(process_pending_followups),
                 interval=FOLLOWUP_CHECK_INTERVAL_MINUTES * 60,
                 first=240,  # ריצה ראשונה אחרי 4 דקות
                 name="followup_leads",
@@ -172,7 +190,29 @@ def create_bot_application():
 
     # Build the application
     app = ApplicationBuilder().token(TELEGRAM_BOT_TOKEN).post_init(_post_init).build()
-    
+    _register_handlers(app)
+    logger.info("Telegram bot application configured successfully")
+    return app
+
+
+def create_tenant_bot_application(token: str) -> Application:
+    """אפליקציית בוט ל-tenant (multi-tenant שלב 2 — ריבוי בוטים בתהליך).
+
+    זהה לאפליקציה הרגילה בכל ה-handlers, אבל:
+    - הטוקן מגיע מהסודות של ה-tenant (לא מ-env).
+    - בלי post_init: אין רישום ל-bot_state הגלובלי (הרישום נעשה
+      ב-bot_registry פר-tenant) ואין JobQueue jobs — העבודות המתוזמנות
+      רצות ב-schedulers הפלטפורמתיים שמאתרים על פני כל ה-tenants.
+    """
+    if not token:
+        raise ValueError("tenant bot token is empty")
+    app = ApplicationBuilder().token(token).build()
+    _register_handlers(app)
+    return app
+
+
+def _register_handlers(app: Application) -> None:
+    """רישום כל ה-handlers — משותף לבוט ה-legacy ולבוטים פר-tenant."""
     # ─── Conversation handler for appointment booking ─────────────────────
     # Filter that matches any main-menu button text — used to let button
     # clicks break out of an active booking conversation.
@@ -245,9 +285,6 @@ def create_bot_application():
     
     # Error handler
     app.add_error_handler(error_handler)
-    
-    logger.info("Telegram bot application configured successfully")
-    return app
 
 
 def run_bot():

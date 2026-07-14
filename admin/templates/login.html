@@ -31,9 +31,9 @@
         <form method="POST">
             <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
             <div class="form-group">
-                <label for="username" class="form-label">שם משתמש</label>
+                <label for="username" class="form-label">שם משתמש או אימייל</label>
                 <input type="text" class="form-input" id="username" name="username" required autofocus
-                       placeholder="הכניסו שם משתמש">
+                       autocomplete="username" placeholder="שם משתמש או כתובת אימייל">
             </div>
             <div class="form-group">
                 <label for="password" class="form-label">סיסמה</label>

@@ -198,9 +198,12 @@ def meta_inbound():
         logger.exception("Meta webhook: payload לא JSON תקין")
         return Response("OK", status=200)
 
+    from tenancy import tenant_context
+
     messages = _extract_inbound_messages(payload)
     for m in messages:
-        if not _is_known_entry(m["page_or_ig_id"]):
+        tenant = _resolve_entry_tenant(m["page_or_ig_id"])
+        if tenant is None:
             logger.warning(
                 "Meta inbound: entry לא מוכר — מתעלמים. channel=%s entry_hash=%s",
                 m["channel"], _short_hash(m["page_or_ig_id"]),
@@ -209,15 +212,19 @@ def meta_inbound():
 
         # PII redaction: sender → hash; text → אורך בלבד.
         logger.info(
-            "Meta inbound: channel=%s sender_hash=%s text_len=%s has_attachments=%s",
+            "Meta inbound: channel=%s tenant=%s sender_hash=%s text_len=%s has_attachments=%s",
             m["channel"],
+            tenant,
             _short_hash(m["sender_id"]),
             _safe_len(m["text"]),
             m["has_attachments"],
         )
 
         try:
-            _handle_meta_message(m)
+            # כל entry מעובד תחת ה-tenant שלו — ה-credentials, ההיסטוריה
+            # וה-RAG נקראים מקובץ ה-DB הנכון.
+            with tenant_context(tenant):
+                _handle_meta_message(m)
         except Exception:
             # לולאת I/O ארוכה — כשל בהודעה אחת לא עוצר את היתר
             # (כלל ה-CLAUDE.md על "לולאות I/O ארוכות").
@@ -403,8 +410,8 @@ def _notify_owner_telegram(chat_id: str, text: str) -> bool:
 def _is_known_entry(entry_id: Optional[str]) -> bool:
     """האם ה-entry.id (page_id או IG Business Account ID) מוכר?
 
-    בודק מול `meta_credentials`. אם ה-DB עוד לא קיים (טסטים מסוימים) —
-    מחזיר False כדי שלא נטפל באירועים בלי credentials.
+    בודק מול `meta_credentials` של ה-tenant הנוכחי. אם ה-DB עוד לא קיים
+    (טסטים מסוימים) — מחזיר False כדי שלא נטפל באירועים בלי credentials.
     """
     if not entry_id:
         return False
@@ -414,6 +421,33 @@ def _is_known_entry(entry_id: Optional[str]) -> bool:
     except Exception:
         logger.exception("is_meta_entry_known נכשל — מתייחסים כ-unknown")
         return False
+
+
+def _resolve_entry_tenant(entry_id: Optional[str]) -> Optional[str]:
+    """resolve של ה-tenant לפי entry.id (spec 6.3).
+
+    ה-webhook של מטא משותף לכל הפלטפורמה (callback אחד ברמת האפליקציה),
+    ולכן ה-entry.id הוא מפתח הראוטינג: קודם lookup ב-control plane
+    (meta_page_id / meta_ig_account), ואם אין — fallback לבדיקה בטבלת
+    ה-credentials של ה-tenant של ברירת המחדל (התנהגות legacy). None =
+    לא מוכר לאף אחד ⇒ מתעלמים מהאירוע.
+    """
+    if not entry_id:
+        return None
+    try:
+        from control_plane import resolve_route
+
+        tenant = (
+            resolve_route("meta_page_id", entry_id)
+            or resolve_route("meta_ig_account", entry_id)
+        )
+        if tenant:
+            return tenant
+    except Exception:
+        logger.exception("resolve_entry_tenant: control plane lookup נכשל")
+    from tenancy import DEFAULT_TENANT
+
+    return DEFAULT_TENANT if _is_known_entry(entry_id) else None
 
 
 def _short_hash(value: Any) -> str:
@@ -608,7 +642,8 @@ def _send_meta_as_page(
         _send_meta_raw(internal_user_id, text, provider_asset_id)
         return
 
-    page_url = f"{ADMIN_URL}/p/{page_id}"
+    from public_urls import public_page_url
+    page_url = public_page_url(page_id)
     short_msg = f"הכנתי עבורכם את כל המידע בעמוד נוח לקריאה:\n{page_url}"
     # קוראים ל-raw ישירות, לא ל-_send_meta_response, כדי למנוע recursion
     # תיאורטי אם השילוב ADMIN_URL+page_id יעבור את הסף בעתיד (כל סיבוב

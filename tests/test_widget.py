@@ -938,3 +938,67 @@ class TestWidgetLeadCapture:
             history=[],
             current_user_message="hi",
         )
+
+
+# ── widget פר-tenant: ?k= בעמוד ההטמעה ובדמו ────────────────────────────────
+
+
+class TestPerTenantWidget:
+    def _login(self, client):
+        with client.session_transaction() as sess:
+            sess["logged_in"] = True
+            sess["username"] = "test_admin"
+
+    def test_embed_admin_default_tenant_keyless(self, widget_client):
+        """ה-tenant של ברירת המחדל — קטע הטמעה בלי ?k= (התנהגות legacy)."""
+        client, _ = widget_client
+        self._login(client)
+        body = client.get("/widget-embed").get_data(as_text=True)
+        assert "/widget/embed.js" in body
+        assert "embed.js?k=" not in body
+
+    def test_embed_admin_platform_tenant_gets_key(self, widget_client):
+        """tenant בפלטפורמה — המפתח נוצר אוטומטית בביקור הראשון ונכנס
+        לקטע ההטמעה (בלעדיו ה-widget היה מדבר עם ה-default)."""
+        client, _ = widget_client
+        import control_plane as cp
+        from tenancy import tenant_context
+
+        cp.create_tenant("widget-biz", "עסק widget")
+        self._login(client)
+        with client.session_transaction() as sess:
+            sess["admin_role"] = "platform_admin"
+            sess["admin_email"] = "p@x.com"
+            sess["acting_tenant"] = "widget-biz"
+        # הפיצ'ר נבדק ב-subscription של ה-tenant — מדליקים אצלו
+        with tenant_context("widget-biz"):
+            import feature_flags
+            feature_flags.set_plan("premium", reason="widget test")
+        body = client.get("/widget-embed").get_data(as_text=True)
+        key = cp.get_tenant_route_key("widget-biz", "widget_key")
+        assert key, "המפתח אמור להיווצר אוטומטית בביקור הראשון"
+        assert f"embed.js?k={key}" in body
+        # ביקור שני לא מייצר מפתח חדש (אידמפוטנטי)
+        client.get("/widget-embed")
+        assert cp.get_tenant_route_key("widget-biz", "widget_key") == key
+
+    def test_demo_with_key_shows_tenant_name(self, widget_client):
+        """demo?k= מציג את שם העסק של ה-tenant, לא של ה-default."""
+        client, _ = widget_client
+        import control_plane as cp
+        from tenancy import tenant_context
+        from ai_chatbot import database as db
+
+        cp.create_tenant("widget-biz2", "קליניקת אור")
+        cp.set_route("widget_key", "demo-key-123", "widget-biz2")
+        with tenant_context("widget-biz2"):
+            import feature_flags
+            feature_flags.set_plan("premium", reason="widget test")
+        body = client.get("/widget/demo?k=demo-key-123").get_data(as_text=True)
+        assert "קליניקת אור" in body           # השם של ה-tenant (נזרע ב-create_tenant)
+        assert "מספרת בדיקה" not in body       # לא השם של ה-default (env)
+        assert "embed.js?k=demo-key-123" in body
+
+    def test_demo_with_unknown_key_404(self, widget_client):
+        client, _ = widget_client
+        assert client.get("/widget/demo?k=no-such-key").status_code == 404

@@ -32,8 +32,15 @@ from messaging.twilio_content_api import get_auth as _get_auth, content_api_url 
 logger = logging.getLogger(__name__)
 
 # קאש in-memory — מונע קריאות מיותרות ל-API.
-# מפתח: friendly_name (כולל hash תוכן), ערך: content_sid
-_template_cache: dict[str, str] = {}
+# מפתח: (tenant, friendly_name כולל hash תוכן), ערך: content_sid.
+# ה-SIDs שייכים לחשבון ה-Twilio של ה-tenant — אסור שיערבבו בין עסקים.
+_template_cache: dict[tuple[str, str], str] = {}
+
+
+def _tpl_key(friendly_name: str) -> tuple[str, str]:
+    from tenancy import get_current_tenant
+
+    return (get_current_tenant(), friendly_name)
 
 
 # ── יצירת Templates ─────────────────────────────────────────────────────────
@@ -93,7 +100,7 @@ def create_quick_reply(
         raise RuntimeError(f"יצירת Quick Reply template נכשלה: {resp.status_code} {resp.text}")
 
     sid = resp.json()["sid"]
-    _template_cache[friendly_name] = sid
+    _template_cache[_tpl_key(friendly_name)] = sid
     logger.info("Quick Reply template created: %s → %s", friendly_name, sid)
     return sid
 
@@ -155,7 +162,7 @@ def create_list_picker(
         raise RuntimeError(f"יצירת List Picker template נכשלה: {resp.status_code} {resp.text}")
 
     sid = resp.json()["sid"]
-    _template_cache[friendly_name] = sid
+    _template_cache[_tpl_key(friendly_name)] = sid
     logger.info("List Picker template created: %s → %s", friendly_name, sid)
     return sid
 
@@ -166,8 +173,9 @@ def create_list_picker(
 def find_template(friendly_name: str) -> Optional[str]:
     """חיפוש template קיים לפי friendly_name. מחזיר content_sid או None."""
     # בדיקה בקאש
-    if friendly_name in _template_cache:
-        return _template_cache[friendly_name]
+    cached = _template_cache.get(_tpl_key(friendly_name))
+    if cached:
+        return cached
 
     # חיפוש ב-API — עם pagination (Twilio מחזיר דפים של תוצאות)
     auth = _get_auth()
@@ -183,7 +191,7 @@ def find_template(friendly_name: str) -> Optional[str]:
             for item in data.get("contents", []):
                 if item.get("friendly_name") == friendly_name:
                     sid = item["sid"]
-                    _template_cache[friendly_name] = sid
+                    _template_cache[_tpl_key(friendly_name)] = sid
                     return sid
 
             # דף הבא — Twilio מחזיר URI יחסי ב-meta.next_page_url
@@ -212,7 +220,7 @@ def delete_template(content_sid: str) -> bool:
         if resp.status_code in (204, 404):
             # ניקוי מהקאש בכל אופן (גם אם הייתה כבר מחוקה)
             _template_cache.pop(
-                next((k for k, v in _template_cache.items() if v == content_sid), ""),
+                next((k for k, v in _template_cache.items() if v == content_sid), ("", "")),
                 None,
             )
             if resp.status_code == 204:
@@ -244,7 +252,7 @@ def _ensure_fresh(friendly_name: str, content_hash: str) -> Optional[str]:
     versioned_name = f"{friendly_name}_{content_hash}"
 
     # בדיקה מהירה בקאש
-    cached_sid = _template_cache.get(versioned_name)
+    cached_sid = _template_cache.get(_tpl_key(versioned_name))
     if cached_sid:
         return cached_sid
 
@@ -280,7 +288,7 @@ def _ensure_fresh(friendly_name: str, content_hash: str) -> Optional[str]:
             logger.error("שגיאה במחיקת template ישן: %s", old_sid, exc_info=True)
 
     if found_sid:
-        _template_cache[versioned_name] = found_sid
+        _template_cache[_tpl_key(versioned_name)] = found_sid
         return found_sid
 
     return None

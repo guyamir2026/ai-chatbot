@@ -41,6 +41,7 @@ def _default_subscription_row() -> dict:
     return {
         "id": 1,
         "plan": DEFAULT_PLAN,
+        "channel": "",
         "features_json": "{}",
         "plan_started_at": "",
         "plan_ends_at": None,
@@ -103,6 +104,76 @@ def get_current_plan() -> str:
 def get_plan_config() -> dict[str, Any]:
     """החזרת ההגדרה המלאה של החבילה הנוכחית מ-`plans_config.PLANS`."""
     return get_plan_definition(get_current_plan())
+
+
+# ערכי הערוץ החוקיים — '' = טרם נקבע (שני המקטעים פתוחים ב"הגדרות תשתית")
+VALID_CHANNELS = ("", "telegram", "whatsapp")
+
+
+def get_channel() -> str:
+    """הערוץ של ה-tenant הנוכחי — נקבע אוטומטית בחיבור הערוץ הראשון.
+
+    '' = טרם נקבע (או tenant של ברירת המחדל, שפטור ממנגנון הנעילה).
+    לא זורקת — כשל DB מחזיר '' (דרך get_subscription_row).
+    """
+    channel = (get_subscription_row().get("channel") or "").strip()
+    if channel not in VALID_CHANNELS:
+        logger.error("feature_flags: invalid channel %r in DB — treating as unset", channel)
+        return ""
+    return channel
+
+
+def set_channel(channel: str) -> None:
+    """קביעת ערוץ ה-tenant ('' לשחרור הנעילה ע"י מנהל הפלטפורמה).
+
+    נקראת מ-bot_config (auto-set בחיבור מוצלח) ומ-/platform (שחרור).
+    """
+    if channel not in VALID_CHANNELS:
+        raise ValueError(f"set_channel: invalid channel {channel!r}")
+
+    from database import get_connection
+
+    with get_connection() as conn:
+        # אותה הגנה כמו set_plan — יצירת השורה אם המיגרציה נכשלה חלקית
+        conn.execute("INSERT OR IGNORE INTO subscription (id) VALUES (1)")
+        conn.execute(
+            "UPDATE subscription SET channel = ?, updated_at = datetime('now') "
+            "WHERE id = 1",
+            (channel,),
+        )
+
+
+def get_llm_model() -> str:
+    """מודל ה-LLM של ה-tenant הנוכחי — לפי החבילה, כשדרוג.
+
+    סדר עדיפויות:
+      1. override פר-חבילה ב-env: `PLAN_LLM_MODEL_<PLAN>` (למשל
+         `PLAN_LLM_MODEL_PREMIUM=gpt-4.1`) — מאפשר לך להגדיר מודל שדרוג
+         בלי לגעת בקוד ובלי סיכון עלות לא-מכוון (opt-in).
+      2. השדה הסטטי `llm_model` בהגדרת החבילה (`plans_config.PLANS`).
+      3. ברירת המחדל הגלובלית `OPENAI_MODEL` מ-env.
+
+    fail-open: כל כשל בקריאת החבילה נופל ל-OPENAI_MODEL — לעולם לא שובר
+    את יצירת התשובה. המודל חייב להיות תקף על ה-endpoint המשותף של
+    הפלטפורמה (OPENAI_BASE_URL); שדרוג בין-ספקים דורש גם key/base_url
+    פר-tenant (מחוץ לתחום כאן).
+    """
+    import os
+    import ai_chatbot.config as _cfg
+
+    default_model = getattr(_cfg, "OPENAI_MODEL", "") or "gpt-4.1-mini"
+    try:
+        plan = get_current_plan()
+    except Exception:
+        logger.error("get_llm_model: plan lookup failed — using env default", exc_info=True)
+        return default_model
+
+    env_override = os.getenv(f"PLAN_LLM_MODEL_{plan.upper()}", "").strip()
+    if env_override:
+        return env_override
+
+    plan_model = (get_plan_definition(plan).get("llm_model") or "").strip()
+    return plan_model or default_model
 
 
 def _parse_features_json(raw: str | None) -> dict[str, Any]:

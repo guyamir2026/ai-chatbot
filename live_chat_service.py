@@ -17,29 +17,33 @@ from telegram import Update
 from telegram.ext import ContextTypes, ConversationHandler
 
 from ai_chatbot import database as db
-from ai_chatbot.config import (
-    TELEGRAM_BOT_TOKEN,
-    TWILIO_ACCOUNT_SID,
-    TWILIO_AUTH_TOKEN,
-    TWILIO_WHATSAPP_NUMBER,
-)
 
 logger = logging.getLogger(__name__)
 
 
 # ── Messaging Helpers ────────────────────────────────────────────────────────
+# הטוקנים נקראים בזמן-ריצה לפי ה-tenant הנוכחי (multi-tenant שלב 2):
+# ה-default ממשיך על ה-env, tenants אחרים על הסודות המוצפנים שלהם —
+# לעולם לא שולחים בזהות בוט/מספר של עסק אחר.
+
+
+def _telegram_token() -> str:
+    from bot_registry import resolve_telegram_token
+
+    return resolve_telegram_token()
 
 
 def send_telegram_message(chat_id: str, text: str, parse_mode: str = "") -> bool:
     """Send a message to a Telegram user via the Bot HTTP API."""
-    if not TELEGRAM_BOT_TOKEN:
+    token = _telegram_token()
+    if not token:
         return False
     try:
         payload: dict = {"chat_id": chat_id, "text": text}
         if parse_mode:
             payload["parse_mode"] = parse_mode
         resp = http_requests.post(
-            f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage",
+            f"https://api.telegram.org/bot{token}/sendMessage",
             json=payload,
             timeout=10,
         )
@@ -51,7 +55,8 @@ def send_telegram_message(chat_id: str, text: str, parse_mode: str = "") -> bool
 
 def send_telegram_document(chat_id: str, file_data: bytes, filename: str, caption: str = "") -> bool:
     """שליחת קובץ כמסמך למשתמש טלגרם דרך Bot HTTP API."""
-    if not TELEGRAM_BOT_TOKEN:
+    token = _telegram_token()
+    if not token:
         return False
     try:
         data: dict = {"chat_id": chat_id}
@@ -59,7 +64,7 @@ def send_telegram_document(chat_id: str, file_data: bytes, filename: str, captio
             data["caption"] = caption
         files = {"document": (filename, file_data, "text/calendar")}
         resp = http_requests.post(
-            f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendDocument",
+            f"https://api.telegram.org/bot{token}/sendDocument",
             data=data,
             files=files,
             timeout=15,
@@ -72,7 +77,9 @@ def send_telegram_document(chat_id: str, file_data: bytes, filename: str, captio
 
 def send_whatsapp_message(chat_id: str, text: str) -> bool:
     """שליחת הודעת WhatsApp דרך Twilio API (סינכרוני)."""
-    if not all([TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, TWILIO_WHATSAPP_NUMBER]):
+    from messaging.whatsapp_webhook import _tenant_twilio_settings
+
+    if _tenant_twilio_settings() is None:
         return False
     try:
         from messaging.whatsapp_sender import send_whatsapp

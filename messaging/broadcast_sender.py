@@ -320,9 +320,8 @@ def _send_campaign_locked(campaign_id: int) -> dict:
     # URL ל-status callback — Twilio ישלח עדכוני סטטוס לכאן
     status_callback_url: Optional[str] = None
     try:
-        from ai_chatbot.config import ADMIN_URL
-        if ADMIN_URL:
-            status_callback_url = f"{ADMIN_URL.rstrip('/')}/webhook/whatsapp/status"
+        from public_urls import whatsapp_status_callback_url
+        status_callback_url = whatsapp_status_callback_url()
     except Exception:
         # ייבוא של config עלול לזרוק בעת startup חריג (missing dep / syntax
         # error). רושמים traceback מלא כדי לא להסתיר באגים אמיתיים מאחורי

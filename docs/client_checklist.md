@@ -3,6 +3,26 @@
 > מסמך זה מפרט את כל השלבים הנדרשים להטמעת הבוט עבור לקוח חדש.
 > **חשוב:** יש לעדכן מסמך זה בכל שינוי רלוונטי בקוד (ראו הנחיה ב-CLAUDE.md).
 
+> **הערת Multi-Tenant (שלב 2):** התהליך שלהלן הוא ה-flow ההיסטורי של
+> **repo-per-client** (שכפול ריפו + Render + `.env`). בפלטפורמה
+> ה-multi-tenant הקלטת לקוח נעשית **בלי ריפו ובלי deploy**:
+> `/platform → "לקוח חדש"` (יוצר tenant + משתמש כניסה לבעל העסק), ואז
+> בעל העסק ממלא את פרטי הערוצים (טוקן טלגרם / Twilio) במסך "הגדרות
+> תשתית" של הפאנל שלו — נשמרים מוצפנים פר-tenant. חלופה ב-CLI:
+> `python -m platform_cli create-tenant / set-secret / connect-telegram /
+> create-admin / show-urls`. ראה `docs/multi_tenant_migration_spec.md`.
+>
+> **ערוץ ונעילה אוטומטית:** לכל לקוח ערוץ אחד (טלגרם *או* WhatsApp).
+> אין בחירה מראש — עם החיבור המוצלח הראשון של ערוץ ב"הגדרות תשתית"
+> הערוץ ננעל והמקטע השני נחסם. שחרור הנעילה: `/platform` → "שחרר ערוץ"
+> (platform admin בלבד); כשהלקוח מחבר את הערוץ החדש — נתוני הערוץ
+> הקודם (סודות + ראוטים) נמחקים אוטומטית.
+>
+> **פרטי העסק:** שם העסק נגזר אוטומטית מ`display_name` שהוזן באשף
+> יצירת הלקוח (מקור-אמת יחיד — אין שדה שם נפרד לעריכה). טלפון/כתובת/אתר
+> נערכים בפאנל → מסך **"כרטיס ביקור"** (נכנסים ל-vCard/ICS/עמוד ציבורי).
+> משתני ה-env ‏`BUSINESS_*` הם fallback ל-legacy בלבד.
+
 ---
 
 ## שלב 1: איסוף מידע מהלקוח
@@ -12,7 +32,7 @@
 
 | # | פריט מידע | קטגוריה ב-seed_data | דוגמה מהדמו |
 |---|-----------|---------------------|-------------|
-| 1 | שם העסק | `BUSINESS_NAME` (config.py) | Dana's Beauty Salon |
+| 1 | שם העסק | נגזר מ-`display_name` שנקבע באשף יצירת הלקוח (‏`BUSINESS_NAME` = ‏fallback ל-legacy) | Dana's Beauty Salon |
 | 2 | שירותים + מחירים | `Services` / `Pricing` | שירותי שיער, ציפורניים, פנים, שעווה + מחירון קיץ 2025 |
 | 3 | שעות פתיחה (כולל ימים סגורים) | `Hours` | א'-ה' 9-19, ו' 9-14, שבת סגור |
 | 4 | כתובת + דרכי הגעה | `Location` | שדרות רוטשילד 123, ת"א |
@@ -91,11 +111,11 @@
 | `SECRETS_ENCRYPTION_KEY` | מפתח Fernet להצפנת שדות סודיים ב-DB (refresh_token של Google Calendar וכו'). חובה לייצור — ייצור עם `python -c 'from utils.crypto import generate_new_key; print(generate_new_key())'`. בלעדיו, סודות נשמרים בטקסט גלוי. | מומלץ מאוד |
 | `LEDGER_PEPPER_V1` | Pepper סודי לפנקס הסכמות פסאודונימי (consent_ledger לתיקון 13). חייב להיות נפרד מ-`SECRETS_ENCRYPTION_KEY`. ייצור: `python -c 'import secrets; print(secrets.token_urlsafe(32))'`. בלעדיו, רשומות ledger לא ייכתבו (אזהרה ב-log, לא חוסם startup). | חובה לציות מלא |
 | `VAPID_PUBLIC_KEY` / `VAPID_PRIVATE_KEY` / `VAPID_SUBJECT` | מפתחות Web Push להתראות לבעל העסק כשהדשבורד סגור (הודעות חדשות בשיחה חיה). יצירה: `python -m utils.vapid_keygen` — מדפיס שלושת הערכים מוכנים להעתקה. `VAPID_SUBJECT` חייב להיות `mailto:...` עם כתובת אימייל פעילה. בלעדיהם, מנגנון ה-Web Push מושבת בשקט (שאר הפאנל עובד רגיל). | מומלץ |
-| `BUSINESS_NAME` | שם העסק (מופיע ב-system prompt) | כן |
-| `BUSINESS_PHONE` | טלפון העסק (לכרטיס ביקור דיגיטלי) | לא |
-| `BUSINESS_ADDRESS` | כתובת העסק (לכרטיס ביקור דיגיטלי) | לא |
-| `BUSINESS_WEBSITE` | אתר העסק (לכרטיס ביקור דיגיטלי) | לא |
-| `TELEGRAM_BOT_USERNAME` | שם המשתמש של הבוט ללא @ (ל-QR Code ולינקי הפניות) | לא |
+| `BUSINESS_NAME` | שם העסק (system prompt) — **fallback ל-legacy**: מאז multi-tenant השם נגזר מ-`display_name` (הקמת הלקוח); ‏env נקרא רק ל-tenant של ברירת המחדל | לא (legacy) |
+| `BUSINESS_PHONE` | טלפון העסק (כרטיס ביקור דיגיטלי) — fallback ל-legacy; נערך בפאנל → "כרטיס ביקור" | לא |
+| `BUSINESS_ADDRESS` | כתובת העסק (כרטיס ביקור דיגיטלי) — fallback ל-legacy; נערך בפאנל → "כרטיס ביקור" | לא |
+| `BUSINESS_WEBSITE` | אתר העסק (כרטיס ביקור דיגיטלי) — fallback ל-legacy; נערך בפאנל → "כרטיס ביקור" | לא |
+| `TELEGRAM_BOT_USERNAME` | שם המשתמש של הבוט ללא @ (QR Code ולינקים) — fallback ל-legacy: ל-tenant בפלטפורמה השם נלכד אוטומטית (getMe) בעת חיבור הטוקן | לא |
 | `OPENAI_MODEL` | מודל LLM (ברירת מחדל: `gpt-4.1-mini`). ל-Gemini: `gemini-2.5-flash` | לא |
 | `EMBEDDING_MODEL` | מודל embeddings (ברירת מחדל: `text-embedding-3-small`). ל-Gemini: `gemini-embedding-001` | לא |
 | `OPENAI_BASE_URL` | כתובת API חיצוני. ל-Gemini: `https://generativelanguage.googleapis.com/v1beta/openai/` | לא |
@@ -158,7 +178,7 @@
 
 ### 4.2 עדכון `config.py` והגדרות בוט
 
-- [ ] שינוי `BUSINESS_NAME` (או הגדרתו ב-`.env`)
+- [ ] מילוי "כרטיס ביקור" (טלפון/כתובת/אתר) בפאנל. השם נגזר אוטומטית מ-`display_name` שהוזן בהקמה; ‏`BUSINESS_NAME` ב-`.env` הוא fallback ל-legacy בלבד
 - [ ] בחירת טון תקשורת דרך פאנל האדמין → "הגדרות בוט" (none / friendly / formal / sales / luxury)
 - [ ] הזנת ביטויים אופייניים לעסק דרך פאנל האדמין → "הגדרות בוט" (אופציונלי)
 - [ ] הזנת פרומפט עסקי מותאם אישית דרך פאנל האדמין → "הגדרות בוט" (אופציונלי)

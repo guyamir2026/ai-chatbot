@@ -21,8 +21,16 @@ logger = logging.getLogger(__name__)
 # timeout — 30 דקות של חוסר פעילות
 _SESSION_TIMEOUT = 30 * 60
 
-# state storage — in-memory dict (מספיק לשימוש נוכחי, אפשר להעביר ל-DB בהמשך)
-_sessions: dict[str, dict] = {}
+# state storage — in-memory dict (מספיק לשימוש נוכחי, אפשר להעביר ל-DB בהמשך).
+# המפתח: (tenant, user_id) — אותו מספר טלפון מול שני עסקים הוא שתי שיחות
+# נפרדות (multi-tenant שלב 2).
+_sessions: dict[tuple[str, str], dict] = {}
+
+
+def _k(user_id: str) -> tuple[str, str]:
+    from tenancy import get_current_tenant
+
+    return (get_current_tenant(), user_id)
 
 # שלבי ה-booking flow
 STATE_BOOKING_SERVICE = "booking_service"
@@ -43,13 +51,14 @@ STATE_RESCHEDULE_CONFIRM = "reschedule_confirm"  # אישור שינוי
 
 def get_state(user_id: str) -> Optional[dict]:
     """קבלת state נוכחי למשתמש. מחזיר None אם אין או שפג תוקף."""
-    session = _sessions.get(user_id)
+    key = _k(user_id)
+    session = _sessions.get(key)
     if session is None:
         return None
     # בדיקת timeout
     if time.time() - session.get("updated_at", 0) > _SESSION_TIMEOUT:
         logger.info("WhatsApp booking session expired for user %s", user_id)
-        del _sessions[user_id]
+        del _sessions[key]
         return None
     return session
 
@@ -57,13 +66,14 @@ def get_state(user_id: str) -> Optional[dict]:
 def set_state(user_id: str, state: str, data: Optional[dict] = None) -> None:
     """הגדרת state חדש למשתמש."""
     now = time.time()
-    existing = _sessions.get(user_id)
+    key = _k(user_id)
+    existing = _sessions.get(key)
     merged_data = {}
     if existing and existing.get("data"):
         merged_data.update(existing["data"])
     if data:
         merged_data.update(data)
-    _sessions[user_id] = {
+    _sessions[key] = {
         "state": state,
         "data": merged_data,
         "created_at": existing["created_at"] if existing else now,
@@ -73,7 +83,7 @@ def set_state(user_id: str, state: str, data: Optional[dict] = None) -> None:
 
 def clear_state(user_id: str) -> None:
     """מחיקת state למשתמש (סיום/ביטול flow)."""
-    _sessions.pop(user_id, None)
+    _sessions.pop(_k(user_id), None)
 
 
 def get_session_data(user_id: str, key: str, default=None):
@@ -87,12 +97,13 @@ def get_session_data(user_id: str, key: str, default=None):
 def cleanup_expired() -> int:
     """ניקוי sessions שפג תוקפם. מחזיר מספר sessions שנוקו."""
     now = time.time()
+    # הניקוי גלובלי — עובר על sessions של כל ה-tenants (המפתח כולל tenant)
     expired = [
-        uid for uid, s in _sessions.items()
+        key for key, s in _sessions.items()
         if now - s.get("updated_at", 0) > _SESSION_TIMEOUT
     ]
-    for uid in expired:
-        del _sessions[uid]
+    for key in expired:
+        del _sessions[key]
     if expired:
         logger.info("Cleaned up %d expired WhatsApp booking sessions", len(expired))
     return len(expired)

@@ -8,23 +8,66 @@ WhatsApp Sender — פונקציית שליחה משותפת לכל הערוצי
 """
 
 import logging
+import threading
 
 from messaging.formatter import format_message
 
 logger = logging.getLogger(__name__)
 
-# Twilio Client — נוצר פעם אחת (lazy) וממוחזר לכל הקריאות
-_twilio_client = None
+# Twilio Clients — registry פר-tenant (multi-tenant שלב 2). ה-client של
+# ה-tenant של ברירת המחדל נבנה מ-env (התנהגות legacy); של כל tenant אחר —
+# מהסודות המוצפנים ב-control plane. לעולם לא נופלים ל-env עבור tenant
+# אחר: זו הזהות (והחיוב) של עסק אחר.
+_twilio_clients: dict[str, object] = {}
+_twilio_clients_lock = threading.Lock()
+
+
+def _resolve_twilio_settings() -> tuple[str, str, str]:
+    """(account_sid, auth_token, whatsapp_number) של ה-tenant הנוכחי."""
+    from tenancy import DEFAULT_TENANT, get_current_tenant
+
+    tenant = get_current_tenant()
+    if tenant == DEFAULT_TENANT:
+        from ai_chatbot.config import (
+            TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, TWILIO_WHATSAPP_NUMBER,
+        )
+        return TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, TWILIO_WHATSAPP_NUMBER
+
+    from control_plane import get_tenant_secret
+
+    sid = get_tenant_secret(tenant, "twilio_account_sid")
+    token = get_tenant_secret(tenant, "twilio_auth_token")
+    number = get_tenant_secret(tenant, "twilio_whatsapp_number")
+    if not (sid and token and number):
+        raise RuntimeError(
+            f"Twilio credentials חסרים ל-tenant '{tenant}' — "
+            "יש להגדיר דרך: python -m platform_cli set-secret"
+        )
+    return sid, token, number
 
 
 def _get_twilio_client():
-    """יצירת / קבלת Twilio Client singleton."""
-    global _twilio_client
-    if _twilio_client is None:
-        from ai_chatbot.config import TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN
-        from twilio.rest import Client
-        _twilio_client = Client(TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN)
-    return _twilio_client
+    """Twilio Client של ה-tenant הנוכחי (registry, נבנה עצלה)."""
+    from tenancy import get_current_tenant
+
+    tenant = get_current_tenant()
+    with _twilio_clients_lock:
+        client = _twilio_clients.get(tenant)
+    if client is not None:
+        return client
+    sid, token, _ = _resolve_twilio_settings()
+    from twilio.rest import Client
+    client = Client(sid, token)
+    with _twilio_clients_lock:
+        # מרוץ נדיר: שני threads בונים client לאותו tenant — הדריסה שקולה
+        _twilio_clients[tenant] = client
+    return client
+
+
+def reset_twilio_clients() -> None:
+    """ניקוי ה-registry (לטסטים / רוטציית credentials)."""
+    with _twilio_clients_lock:
+        _twilio_clients.clear()
 
 
 def _is_phone_number(value: str) -> bool:
@@ -57,7 +100,7 @@ def send_whatsapp(to_number: str, text: str, media_url: str | None = None) -> No
         Exception: כל שגיאת Twilio — הקורא אחראי על טיפול בשגיאות.
         ValueError: אם לא ניתן למצוא מספר טלפון לשליחה.
     """
-    from ai_chatbot.config import TWILIO_WHATSAPP_NUMBER, DEMO_MODE
+    from ai_chatbot.config import DEMO_MODE
 
     # ── מצב דמו — לא שולחים בפועל ל-Twilio ──
     # ה-deployment כולו הוא דמו (ראה docs/demo-mode-spec.md). המטרה: אפס
@@ -81,9 +124,10 @@ def send_whatsapp(to_number: str, text: str, media_url: str | None = None) -> No
 
     formatted = format_message(text, "whatsapp")
     client = _get_twilio_client()
+    _, _, _wa_from_number = _resolve_twilio_settings()
     kwargs = {
         "body": formatted,
-        "from_": f"whatsapp:{TWILIO_WHATSAPP_NUMBER}",
+        "from_": f"whatsapp:{_wa_from_number}",
         "to": f"whatsapp:{send_to}",
     }
     if media_url:

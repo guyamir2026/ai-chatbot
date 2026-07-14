@@ -17,12 +17,18 @@
 
 ## ארכיטקטורה
 
-- **מבנה מודולים:** קוד המקור בשורש הריפו (`config.py`, `database.py`, וכו'). חבילת `ai_chatbot/` מכילה wrappers שמייצאים מהשורש. כשמוסיפים מודול חדש בשורש — ליצור גם wrapper ב-`ai_chatbot/`.
+- **מבנה מודולים:** קוד המקור בשורש הריפו (`config.py`, `database.py`, וכו'). חבילת `ai_chatbot/` היא **namespace של aliases** — meta-path finder ב-`ai_chatbot/__init__.py` ממפה כל `ai_chatbot.X` לאותו אובייקט מודול של `X` בשורש. **אין ליצור קבצי wrapper ידניים** — מודול חדש בשורש זמין אוטומטית גם כ-`ai_chatbot.<שם>`. אסור לחזור לדפוס `from X import *` בתוך `ai_chatbot/` (יוצר שני עותקים של module state).
 - **בסיס נתונים:** SQLite עם WAL mode. סכימה של DB חדש ב-`init_db()` (CREATE TABLE IF NOT EXISTS בלבד). מיגרציות לטבלאות קיימות — ADD COLUMN דרך `_ensure_column`, אינדקסים תלויי-עמודה — ב-`migrations.py` בלבד, מורצים מ-`init_db` דרך `run_migrations()` אחרי ה-executescript. ראה הסעיף "DB — סדר הרצה של init_db מול migrations" למטה.
 - **Admin:** Flask + HTMX + Jinja2. RTL עברית. תבניות ב-`admin/templates/`.
 - **בוט:** python-telegram-bot (async). Handlers ב-`bot/handlers.py`.
 - **ערוצים:** בפרודקשן כל לקוח עובד על ערוץ אחד בלבד — או Telegram או WhatsApp, לא שניהם במקביל. הקוד תומך בשניהם אבל deployment הוא ערוץ-יחיד.
 - **LLM:** שלוש שכבות — A (system prompt), B (RAG context), C (quality check עם regex).
+- **Multi-tenant (שלב 1 — תשתית):** ראה `docs/multi_tenant_migration_spec.md` ו-`tenancy.py`. הכללים המחייבים כבר עכשיו:
+  - **זהות עסקית** (שם/טלפון/כתובת/אתר) — אך ורק דרך `config.get_business_config()` בזמן-ריצה. אסור `from config import BUSINESS_NAME` (הערך קופא ב-import ולא ניתן להחלפה פר-tenant). `build_system_prompt` מקבל `business_name` כפרמטר אופציונלי.
+  - **נתיב DB** — `get_connection()` פותח את הקובץ לפי ה-tenant הנוכחי (`tenancy.tenant_db_path()`). אסור לפתוח `sqlite3.connect` ישירות מול `DB_PATH`.
+  - **קביעת tenant** — רק בנקודות כניסה (Flask `before_request`, לולאות schedulers, CLI) דרך `tenant_context()` / `set_current_tenant()`. קוד עמוק קורא `get_current_tenant()` ולא מנחש. במעבר בין threads ה-context לא עובר אוטומטית — להעביר את ה-tenant כפרמטר ולקבוע מחדש.
+  - **state חדש ברמת מודול** (cache/dict/singleton שמחזיק נתוני ריצה) — חייב מפתח tenant מהיום הראשון, או להיצמד ל-DB.
+  - `TENANCY_STRICT=true` (env) הופך גישה בלי context לחריגה — יודלק בפלטפורמה בשלב 2; טסטים יכולים להשתמש בו לאיתור נתיבים לא מכוסים.
 
 ## כללי פיתוח
 

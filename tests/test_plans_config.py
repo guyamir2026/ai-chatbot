@@ -30,10 +30,8 @@ class TestPlansStructure:
     def test_each_plan_has_required_keys(self):
         for plan_key, plan in PLANS.items():
             assert "display_name" in plan
-            assert "channel" in plan
             assert "grace_period_days" in plan
             assert "features" in plan
-            assert plan["channel"] in ("telegram", "whatsapp")
             assert isinstance(plan["grace_period_days"], int)
 
     def test_all_features_appear_in_every_plan(self):
@@ -53,12 +51,14 @@ class TestPlansStructure:
     def test_premium_grace_is_30(self):
         assert PLANS[PLAN_PREMIUM]["grace_period_days"] == 30
 
-    def test_basic_channel_is_telegram(self):
-        assert PLANS[PLAN_BASIC]["channel"] == "telegram"
+    def test_plans_do_not_define_channel(self):
+        """הערוץ הוא מאפיין פר-tenant (subscription.channel), לא של חבילה.
 
-    def test_advanced_premium_channel_is_whatsapp(self):
-        assert PLANS[PLAN_ADVANCED]["channel"] == "whatsapp"
-        assert PLANS[PLAN_PREMIUM]["channel"] == "whatsapp"
+        אם 'channel' יחזור להגדרת חבילה — הטסט יזכיר שהצימוד בוטל בכוונה
+        (הערוץ נקבע בנעילה אוטומטית בחיבור הראשון, ראה feature_flags).
+        """
+        for plan_key, plan in PLANS.items():
+            assert "channel" not in plan, plan_key
 
 
 class TestFeatureMatrix:

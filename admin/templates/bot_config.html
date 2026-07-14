@@ -5,11 +5,21 @@
     <h1><i class="bi bi-gear"></i> הגדרות תשתית</h1>
 </div>
 
-{# Phase 4 — נעילת ערוץ לפי החבילה: רק הערוץ של החבילה ניתן לעריכה.
-   plan_definition.channel = 'telegram' → ווטסאפ נעול וההפך. #}
-{% set channel_active = plan_definition.channel %}
-{% set telegram_disabled = (channel_active != 'telegram') %}
-{% set whatsapp_disabled = (channel_active != 'whatsapp') %}
+{# נעילת ערוץ פר-tenant: הערוץ נקבע אוטומטית בחיבור המוצלח הראשון
+   (tenant_channel מה-context processor). ריק = טרם נקבע → שני המקטעים
+   פתוחים; 'telegram' → WhatsApp נעול, וההפך. שחרור — מנהל הפלטפורמה
+   בלבד (/platform). ה-tenant של ברירת המחדל תמיד עם tenant_channel ריק. #}
+{% set channel_active = tenant_channel %}
+{% set telegram_disabled = (channel_active and channel_active != 'telegram') %}
+{% set whatsapp_disabled = (channel_active and channel_active != 'whatsapp') %}
+
+{% if is_platform_tenant and not channel_active %}
+<div class="alert alert-info animate-fade-in" style="margin-bottom: var(--space-md);">
+    <i class="bi bi-info-circle"></i>
+    העסק עובד על ערוץ אחד — טלגרם <strong>או</strong> WhatsApp. חברו את הערוץ
+    שבחרתם למטה; עם החיבור הראשון הערוץ השני יינעל אוטומטית.
+</div>
+{% endif %}
 
 <!-- הגדרות טלגרם -->
 <div class="card animate-slide-up stagger-1{% if telegram_disabled %} channel-card-disabled{% endif %}">
@@ -17,7 +27,7 @@
         <span><i class="bi bi-telegram"></i> חיבור טלגרם</span>
         {% if telegram_disabled %}
         <span style="font-size: 0.85rem; opacity: 0.75;">
-            <i class="bi bi-lock-fill"></i> לא בשימוש בחבילה הנוכחית
+            <i class="bi bi-lock-fill"></i> הערוץ נעול
         </span>
         {% endif %}
     </div>
@@ -25,8 +35,8 @@
         {% if telegram_disabled %}
         <div class="alert alert-info" style="margin-bottom: var(--space-md);">
             <i class="bi bi-info-circle"></i>
-            החבילה הנוכחית שלך פועלת על <strong>WhatsApp</strong>.
-            הגדרות טלגרם נעולות. לשינוי, צור קשר עם ספק השירות.
+            העסק מחובר ל-<strong>WhatsApp</strong>, ולכן הגדרות טלגרם נעולות.
+            להחלפת ערוץ פנו לספק השירות — שחרור הנעילה נעשה ממסך הפלטפורמה.
         </div>
         {% endif %}
         <form method="POST" action="{{ url_for('bot_config') }}" autocomplete="off">
@@ -88,7 +98,7 @@
         <span><i class="bi bi-whatsapp"></i> חיבור WhatsApp (Twilio)</span>
         {% if whatsapp_disabled %}
         <span style="font-size: 0.85rem; opacity: 0.75;">
-            <i class="bi bi-lock-fill"></i> לא בשימוש בחבילה הנוכחית
+            <i class="bi bi-lock-fill"></i> הערוץ נעול
         </span>
         {% endif %}
     </div>
@@ -96,8 +106,8 @@
         {% if whatsapp_disabled %}
         <div class="alert alert-info" style="margin-bottom: var(--space-md);">
             <i class="bi bi-info-circle"></i>
-            החבילה הנוכחית שלך פועלת על <strong>Telegram</strong>.
-            הגדרות WhatsApp נעולות. לשינוי, צור קשר עם ספק השירות.
+            העסק מחובר ל-<strong>Telegram</strong>, ולכן הגדרות WhatsApp נעולות.
+            להחלפת ערוץ פנו לספק השירות — שחרור הנעילה נעשה ממסך הפלטפורמה.
         </div>
         {% endif %}
         <div class="text-small text-muted" style="margin-bottom: var(--space-md);">
@@ -197,6 +207,18 @@
         {% endif %}
     </div>
     <div class="card-body">
+        {% if is_platform_tenant %}
+        {# פער d — לבעל העסק אין מה לעשות עם ה-config הפלטפורמתי של Meta:
+           אפליקציית Meta אחת משרתת את כל הלקוחות ומנוהלת ע"י ספק השירות.
+           לכן שדות ה-webhook/verify/redirect מוסתרים ממנו — נשאר רק חיבור
+           העמוד/החשבון הספציפי שלו דרך OAuth. #}
+        <div class="text-small text-muted" style="margin-bottom: var(--space-md);">
+            <i class="bi bi-info-circle"></i>
+            חיבור אינסטגרם/מסנג'ר נעשה בלחיצה על הכפתור למטה (OAuth). הגדרות
+            ה-webhook של Meta הן ברמת הפלטפורמה ומנוהלות על ידי ספק השירות —
+            אין צורך להגדיר אותן כאן.
+        </div>
+        {% else %}
         {% if meta_env_missing %}
         {# חוסר משתני סביבה — לפני שאפשר בכלל לעבוד #}
         <div class="alert alert-warning" style="margin-bottom: var(--space-md);">
@@ -214,7 +236,7 @@
         </div>
         {% endif %}
 
-        {# קישורים שצריך להעתיק ל-Meta Developer Console #}
+        {# קישורים שצריך להעתיק ל-Meta Developer Console (רק ל-tenant legacy) #}
         <div style="margin-bottom: var(--space-md);">
             <div class="form-group" style="margin-bottom: var(--space-sm);">
                 <label class="form-label" style="font-weight: 600;">Webhook Callback URL</label>
@@ -250,6 +272,7 @@
                        style="max-width: 600px; direction: ltr; text-align: left; cursor: pointer;">
             </div>
         </div>
+        {% endif %}{# סוף שדות ה-config הפלטפורמתיים — מוצגים רק ל-tenant legacy #}
 
         {# עמודים מחוברים — תצוגה מסוכמת. ניהול מלא (ניתוק וכו') בעמוד /admin/meta/setup #}
         {% if meta_pages %}

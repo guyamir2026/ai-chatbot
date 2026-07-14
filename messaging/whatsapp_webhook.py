@@ -11,9 +11,10 @@ WhatsApp Webhook — Flask Blueprint לקבלת הודעות נכנסות מ-Twi
 import asyncio
 import logging
 
-from flask import Blueprint, request, abort
+from flask import Blueprint, request, abort, has_request_context
 
-from ai_chatbot.config import TWILIO_AUTH_TOKEN, TWILIO_ACCOUNT_SID, TWILIO_WHATSAPP_NUMBER, TELEGRAM_OWNER_CHAT_ID, ADMIN_URL, BUSINESS_NAME, WHATSAPP_MAX_LENGTH
+from ai_chatbot.config import TELEGRAM_OWNER_CHAT_ID, ADMIN_URL, WHATSAPP_MAX_LENGTH, get_business_config
+from tenancy import DEFAULT_TENANT, tenant_context
 from ai_chatbot import database as db
 
 logger = logging.getLogger(__name__)
@@ -24,7 +25,14 @@ from utils.user_identity import resolve_whatsapp_user
 
 # אחסון שאלות follow-up per-user — שומרים את הטקסט המלא כי ב-Quick Reply יש מגבלת 20 תווים
 # מפתח: user_id, ערך: רשימת שאלות. נדרס בכל תשובה חדשה (רק השאלות האחרונות רלוונטיות)
-_follow_up_store: dict[str, list[str]] = {}
+# שאלות ההמשך האחרונות פר-משתמש. המפתח: (tenant, user_id).
+_follow_up_store: dict[tuple[str, str], list[str]] = {}
+
+
+def _follow_up_key(user_id: str) -> tuple[str, str]:
+    from tenancy import get_current_tenant
+
+    return (get_current_tenant(), user_id)
 
 # מיפוי interactive_id (מכפתורי Quick Reply / List Picker) לטקסט תפריט
 _INTERACTIVE_MAP = {
@@ -44,14 +52,47 @@ _MENU_MAP = {
 whatsapp_bp = Blueprint("whatsapp", __name__)
 
 
+def _resolve_webhook_tenant(webhook_key):
+    """resolve של ה-tenant מנתיב ה-webhook.
+
+    בלי מפתח (הנתיב ה-legacy /webhook/whatsapp) — ה-tenant של ברירת
+    המחדל (env). עם מפתח — lookup ב-control plane; מפתח לא רשום מחזיר
+    None והקורא עונה 404 (המפתח אקראי ובלתי-ניתן-לניחוש — אין oracle).
+    """
+    if webhook_key is None:
+        return DEFAULT_TENANT
+    from control_plane import resolve_route
+
+    return resolve_route("twilio_webhook_key", webhook_key)
+
+
+def _tenant_twilio_settings():
+    """(sid, token, number) של ה-tenant הנוכחי, או None אם לא מוגדר."""
+    try:
+        from messaging.whatsapp_sender import _resolve_twilio_settings
+
+        sid, token, number = _resolve_twilio_settings()
+        if sid and token and number:
+            return sid, token, number
+    except Exception:
+        logger.error("whatsapp webhook: resolving Twilio settings failed", exc_info=True)
+    return None
+
+
 def _validate_twilio_signature() -> bool:
-    """אימות חתימת Twilio — מוודא שהבקשה מגיעה מ-Twilio ולא ממקור זדוני."""
-    if not TWILIO_AUTH_TOKEN:
-        logger.error("TWILIO_AUTH_TOKEN לא מוגדר — לא ניתן לאמת חתימת Twilio")
+    """אימות חתימת Twilio — עם ה-auth token של ה-tenant הנוכחי.
+
+    ה-resolve של ה-tenant קורה לפני האימות (המפתח ב-URL קובע את הטוקן);
+    fail-closed — בלי טוקן אין אימות ואין עיבוד.
+    """
+    settings = _tenant_twilio_settings()
+    if settings is None:
+        logger.error("Twilio auth token לא זמין ל-tenant הנוכחי — לא ניתן לאמת חתימה")
         return False
+    _, auth_token, _ = settings
     try:
         from twilio.request_validator import RequestValidator
-        validator = RequestValidator(TWILIO_AUTH_TOKEN)
+        validator = RequestValidator(auth_token)
         signature = request.headers.get("X-Twilio-Signature", "")
         # בניית URL מלא — Twilio משתמש ב-URL כפי שנשלח (כולל פרוטוקול)
         url = request.url
@@ -88,7 +129,7 @@ def _maybe_send_opt_in_prompt(to_number: str) -> None:
     # "כן, שלחו"), וזו הפרה פוטנציאלית של תיקון 40 (הסכמה שלא נקלטה).
     intro = f"📬 רוצים לקבל מאיתנו עדכונים והטבות ב-WhatsApp?"
     legal_tail = (
-        f"אני מסכים/ה לקבל הודעות שיווקיות מ-{BUSINESS_NAME}. "
+        f"אני מסכים/ה לקבל הודעות שיווקיות מ-{get_business_config().name}. "
         "ניתן להסיר בכל עת ע\"י השבת *הסר*."
     )
     button_body = f"{intro}\n\nבסימון *כן* {legal_tail}"
@@ -165,7 +206,8 @@ def _handle_opt_in_button(
 
 
 @whatsapp_bp.route("/webhook/whatsapp/status", methods=["POST"])
-def whatsapp_status_webhook():
+@whatsapp_bp.route("/webhook/whatsapp/t/<webhook_key>/status", methods=["POST"])
+def whatsapp_status_webhook(webhook_key=None):
     """נקודת קבלה ל-status callbacks של Twilio עבור הודעות broadcast.
 
     Twilio שולחת עדכוני סטטוס (sent → delivered → read או failed) ב-POST
@@ -175,11 +217,19 @@ def whatsapp_status_webhook():
     מחזירים 200 תמיד (גם בשגיאה) — 5xx היה גורם ל-Twilio retry storm.
     4xx (403) על חתימה לא תקפה בסדר כי Twilio לא מנסים שוב אחרי זה.
     """
-    if not TWILIO_AUTH_TOKEN:
+    tenant = _resolve_webhook_tenant(webhook_key)
+    if tenant is None:
+        abort(404)
+    with tenant_context(tenant):
+        return _whatsapp_status_impl()
+
+
+def _whatsapp_status_impl():
+    if _tenant_twilio_settings() is None:
         # Token חסר אחרי deploy — לא מנסים לאמת ולא מעבדים. 200 כדי
         # ש-Twilio לא ינסה שוב באופן שוטף; הבעיה היא פנימית ותטופל בנפרד.
         logger.warning(
-            "whatsapp_status_webhook: TWILIO_AUTH_TOKEN לא מוגדר — מתעלמים מה-callback"
+            "whatsapp_status_webhook: פרטי Twilio לא זמינים — מתעלמים מה-callback"
         )
         return "", 200
 
@@ -218,11 +268,54 @@ def whatsapp_status_webhook():
     return "", 200
 
 
+def _current_to_number() -> str:
+    """מספר ה-WhatsApp העסקי שאליו נשלחה ההודעה (שדה To של Twilio).
+
+    multi-tenant שלב 1: נאסף ונשמר כ-provider_asset_id על שורת המשתמש —
+    העוגן שדרכו הפלטפורמה תדע לאיזה עסק שייכת הודעה נכנסת (בשלב 2 ה-resolve
+    יקרה לפי מפתח ראוטינג ב-URL, וה-To ישמש cross-check). כשל כאן לא מפיל
+    את הבקשה — מחזיר מחרוזת ריקה ו-upsert_user שומר את הערך הקיים.
+    """
+    # קריאה ישירה מחוץ ל-request (טסטים / שימוש עתידי) — אין To, וזה תקין
+    if not has_request_context():
+        return ""
+    try:
+        return request.form.get("To", "").replace("whatsapp:", "").strip()
+    except Exception:
+        logger.error("whatsapp webhook: failed reading To field", exc_info=True)
+        return ""
+
+
+def _upsert_whatsapp_user(from_number: str, profile_name: str) -> None:
+    """Upsert אחיד למשתמש WhatsApp — כולל שמירת מספר העסק (To)."""
+    db.upsert_user(
+        from_number,
+        profile_name or from_number,
+        channel="whatsapp",
+        provider_asset_id=_current_to_number(),
+    )
+
+
 @whatsapp_bp.route("/webhook/whatsapp", methods=["POST"])
-def whatsapp_webhook():
-    """נקודת כניסה להודעות נכנסות מ-WhatsApp דרך Twilio."""
-    # בדיקת הגדרות — אם Twilio לא מוגדר, מחזיר 503
-    if not all([TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, TWILIO_WHATSAPP_NUMBER]):
+@whatsapp_bp.route("/webhook/whatsapp/t/<webhook_key>", methods=["POST"])
+def whatsapp_webhook(webhook_key=None):
+    """נקודת כניסה להודעות נכנסות מ-WhatsApp דרך Twilio.
+
+    שני נתיבים: ה-legacy (/webhook/whatsapp) משרת את ה-tenant של ברירת
+    המחדל; הנתיב עם המפתח (/webhook/whatsapp/t/<key>) עושה resolve מול
+    ה-control plane — זה הנתיב שמוגדר ב-Twilio Console לכל tenant.
+    """
+    tenant = _resolve_webhook_tenant(webhook_key)
+    if tenant is None:
+        logger.warning("WhatsApp webhook: unknown webhook key — rejecting")
+        abort(404)
+    with tenant_context(tenant):
+        return _whatsapp_webhook_impl()
+
+
+def _whatsapp_webhook_impl():
+    # בדיקת הגדרות — אם Twilio לא מוגדר ל-tenant, מחזיר 503
+    if _tenant_twilio_settings() is None:
         logger.warning("WhatsApp webhook called but Twilio credentials not configured")
         abort(503)
 
@@ -230,6 +323,17 @@ def whatsapp_webhook():
     if not _validate_twilio_signature():
         logger.warning("WhatsApp webhook: invalid Twilio signature — rejecting request")
         abort(403)
+
+    # cross-check: ה-To של ההודעה מול המספר הרשום ל-tenant. mismatch לא
+    # חוסם (החתימה כבר אומתה מול הטוקן של ה-tenant) אבל מרמז על ראוט
+    # שגוי ב-Twilio Console — מתעדים בבירור.
+    _settings = _tenant_twilio_settings()
+    _to = _current_to_number()
+    if _settings and _to and _to != _settings[2]:
+        logger.warning(
+            "WhatsApp webhook: To mismatch — inbound=%s registered=%s "
+            "(בדקו את הגדרת ה-webhook ב-Twilio Console)", _to, _settings[2],
+        )
 
     # חילוץ נתונים מהבקשה
     from_raw = request.form.get("From", "").replace("whatsapp:", "").strip()
@@ -290,7 +394,7 @@ def whatsapp_webhook():
             OPTOUT_CONFIRMATION, OPTIN_CONFIRMATION,
         )
         if detect_optout(body):
-            db.upsert_user(from_number, profile_name or from_number, channel="whatsapp")
+            _upsert_whatsapp_user(from_number, profile_name)
             db.set_wa_opted_out(from_number)
             db.save_message(from_number, profile_name or from_number, "user", body, channel="whatsapp")
             _send_whatsapp_response(from_number, OPTOUT_CONFIRMATION)
@@ -298,7 +402,7 @@ def whatsapp_webhook():
             logger.info("WhatsApp opt-out registered for %s", from_number)
             return "", 200
         if detect_optin(body):
-            db.upsert_user(from_number, profile_name or from_number, channel="whatsapp")
+            _upsert_whatsapp_user(from_number, profile_name)
             db.set_wa_marketing_opt_in(from_number, source="bot_reply")
             db.save_message(from_number, profile_name or from_number, "user", body, channel="whatsapp")
             _send_whatsapp_response(from_number, OPTIN_CONFIRMATION)
@@ -367,7 +471,7 @@ def whatsapp_webhook():
 
         # שלב 2: בקשת מחיקה חדשה — שולחים 2 הודעות (אזהרה + הוראת אישור)
         if detect_delete_request(body):
-            db.upsert_user(from_number, profile_name or from_number, channel="whatsapp")
+            _upsert_whatsapp_user(from_number, profile_name)
             db.save_message(
                 from_number, profile_name or from_number, "user", body, channel="whatsapp",
             )
@@ -382,7 +486,7 @@ def whatsapp_webhook():
 
         # שלב 3: בקשת עיון
         if detect_access_request(body):
-            db.upsert_user(from_number, profile_name or from_number, channel="whatsapp")
+            _upsert_whatsapp_user(from_number, profile_name)
             db.save_message(
                 from_number, profile_name or from_number, "user", body, channel="whatsapp",
             )
@@ -560,7 +664,7 @@ def whatsapp_webhook():
             # לחיצה על כפתור שאלת המשך — שולפים את הטקסט המלא מהמאגר
             try:
                 idx = int(interactive_id.split("_")[1])
-                stored = _follow_up_store.get(from_number, [])
+                stored = _follow_up_store.get(_follow_up_key(from_number), [])
                 if idx < len(stored):
                     body = stored[idx]
                 else:
@@ -586,7 +690,7 @@ def whatsapp_webhook():
 
         # רישום משתמש כמנוי (אם עוד לא קיים) + עדכון טבלת users + קריאת מונה fallbacks
         db.ensure_user_subscribed(from_number)
-        db.upsert_user(from_number, profile_name or from_number, channel="whatsapp")
+        _upsert_whatsapp_user(from_number, profile_name)
         fallbacks = db.get_consecutive_fallbacks(from_number)
 
         # הודעת פתיחה למשתמש חדש — אם אין היסטוריית שיחה, שולחים ברכה + תפריט
@@ -763,12 +867,12 @@ def _send_welcome_message(to_number: str) -> None:
     returning = db.is_returning_customer(to_number)
     if returning:
         body = (
-            f"😊 שמחים לראות אותך שוב ב-{BUSINESS_NAME}!\n"
+            f"😊 שמחים לראות אותך שוב ב-{get_business_config().name}!\n"
             "איך אפשר לעזור הפעם?"
         )
     else:
         body = (
-            f"👋 ברוכים הבאים ל-{BUSINESS_NAME}!\n\n"
+            f"👋 ברוכים הבאים ל-{get_business_config().name}!\n\n"
             "אני העוזר הווירטואלי שלכם. אני יכול לעזור עם:\n"
             "• מידע על השירותים והמחירים\n"
             "• בקשת תורים\n"
@@ -820,7 +924,7 @@ def _send_follow_up_buttons(to_number: str, questions: list[str]) -> None:
 
     # שומרים עד 3 שאלות (מגבלת Quick Reply)
     trimmed = questions[:3]
-    _follow_up_store[to_number] = trimmed
+    _follow_up_store[_follow_up_key(to_number)] = trimmed
 
     try:
         from messaging.whatsapp_templates import ensure_quick_reply, send_with_template
@@ -1339,7 +1443,8 @@ def _send_as_page(to_number: str, text: str, intent=None, rag_context: str = "")
         _send_whatsapp_raw(to_number, text)
         return
 
-    page_url = f"{ADMIN_URL}/p/{page_id}"
+    from public_urls import public_page_url
+    page_url = public_page_url(page_id)
     short_msg = f"הכנתי עבורכם את כל המידע בעמוד נוח לקריאה:\n{page_url}"
     _send_whatsapp_response(to_number, short_msg)
 
@@ -1398,7 +1503,7 @@ def _maybe_handle_referral_code(from_number: str, profile_name: str, body: str) 
         return False
     code = text.split()[0]
 
-    db.upsert_user(from_number, profile_name or from_number, channel="whatsapp")
+    _upsert_whatsapp_user(from_number, profile_name)
     # רישום מנוי שידורים — מקבילה ל-ensure_user_subscribed שנקרא ב-/start
     # (bot/handlers.py:378) וב-process flow (whatsapp_webhook.py:453). בלי זה
     # משתמשים שנכנסים דרך לינק הפניה לא יקבלו שידורים עד ההודעה הבאה שלהם.
@@ -1417,7 +1522,7 @@ def _maybe_handle_referral_code(from_number: str, profile_name: str, body: str) 
         d_str = format_referral_discount(settings.get("referral_discount", 10.0))
         p_str = format_referral_period(settings.get("referral_validity_days", 60))
         reply = (
-            f"👋 ברוכים הבאים ל-{BUSINESS_NAME}!\n\n"
+            f"👋 ברוכים הבאים ל-{get_business_config().name}!\n\n"
             "🎁 *הגעתם דרך הפניה!*\n"
             "לאחר שתקבעו ותשלימו את התור הראשון שלכם — "
             f"גם אתם וגם החבר/ה שהפנה אתכם תקבלו *{d_str} הנחה {p_str}!*\n\n"
@@ -1427,7 +1532,7 @@ def _maybe_handle_referral_code(from_number: str, profile_name: str, body: str) 
         # קוד לא קיים, הפניה עצמית, או שכבר רשום מהפניה אחרת — לא נחשוף את
         # הסיבה המדויקת. שולחים welcome רגיל כדי שלא יתקעו.
         reply = (
-            f"👋 ברוכים הבאים ל-{BUSINESS_NAME}!\n\n"
+            f"👋 ברוכים הבאים ל-{get_business_config().name}!\n\n"
             "כדי להתחיל, שלחו *בקשת תור* או כל שאלה."
         )
 

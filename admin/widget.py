@@ -47,9 +47,9 @@ __all__ = [
 
 
 # ─── Rate limiting ───────────────────────────────────────────────────────────
-# dict בזיכרון פר-תהליך — לא משותף בין workers. לבעל עסק יחיד עם תעבורה
-# נמוכה זה קביל. למוצר רב-לקוחות חייב Redis.
-_widget_message_log: "OrderedDict[str, list[float]]" = OrderedDict()
+# dict בזיכרון פר-תהליך — לא משותף בין workers (תהליך יחיד היום). המפתח:
+# (tenant, ip) — מכסה נפרדת לכל עסק (multi-tenant שלב 2).
+_widget_message_log: "OrderedDict[tuple[str, str], list[float]]" = OrderedDict()
 _WIDGET_LOG_MAX_IPS = 1000
 _WIDGET_WINDOW_SECONDS = 3600
 
@@ -69,6 +69,13 @@ def _get_max_messages_per_window() -> int:
 _WIDGET_MAX_MESSAGES = int(os.getenv("WIDGET_RATE_LIMIT_PER_HOUR", "30") or "30")
 
 
+def _rl_key(ip: str) -> tuple[str, str]:
+    """מפתח ה-rate limit: (tenant, ip) — מכסה נפרדת לכל עסק."""
+    from tenancy import get_current_tenant
+
+    return (get_current_tenant(), ip)
+
+
 def _check_widget_rate_limit(ip: str) -> bool:
     """מחזיר ``True`` אם ה-IP חרג מהמכסה — חוסמים את הבקשה.
 
@@ -78,27 +85,44 @@ def _check_widget_rate_limit(ip: str) -> bool:
     """
     now = time.time()
     cutoff = now - _WIDGET_WINDOW_SECONDS
-    timestamps = _widget_message_log.get(ip) or []
+    key = _rl_key(ip)
+    timestamps = _widget_message_log.get(key) or []
     # ניקוי timestamps ישנים בכל בדיקה
     fresh = [t for t in timestamps if t >= cutoff]
     if fresh:
-        _widget_message_log[ip] = fresh
-    elif ip in _widget_message_log:
-        _widget_message_log.pop(ip, None)
+        _widget_message_log[key] = fresh
+    elif key in _widget_message_log:
+        _widget_message_log.pop(key, None)
     return len(fresh) >= _get_max_messages_per_window()
 
 
 def _record_widget_message(ip: str) -> None:
     """מתעד הודעה חדשה מ-IP נתון, עם LRU eviction."""
     now = time.time()
-    timestamps = _widget_message_log.get(ip)
+    key = _rl_key(ip)
+    timestamps = _widget_message_log.get(key)
     if timestamps is None:
         timestamps = []
     timestamps.append(now)
-    _widget_message_log[ip] = timestamps
-    _widget_message_log.move_to_end(ip)
+    _widget_message_log[key] = timestamps
+    _widget_message_log.move_to_end(key)
     while len(_widget_message_log) > _WIDGET_LOG_MAX_IPS:
         _widget_message_log.popitem(last=False)
+
+
+def _resolve_widget_tenant(widget_key):
+    """resolve של ה-tenant לפי מפתח ה-widget (spec 6.4).
+
+    בלי מפתח — ה-tenant של ברירת המחדל (התנהגות legacy). מפתח לא רשום
+    מחזיר None והקורא עונה 404.
+    """
+    if not widget_key:
+        from tenancy import DEFAULT_TENANT
+
+        return DEFAULT_TENANT
+    from control_plane import resolve_route
+
+    return resolve_route("widget_key", widget_key)
 
 
 # ─── CORS ────────────────────────────────────────────────────────────────────
@@ -336,10 +360,17 @@ def _build_widget_config() -> dict:
     לא חושף סודות — רק שדות תצוגה. ``footer_*`` בנוי דינמית: אם הוגדר
     שם משתמש לבוט טלגרם נחזיר קישור ל-t.me; אחרת אם יש מספר WhatsApp
     נחזיר קישור ל-wa.me.
+
+    הפונקציה רצה בתוך tenant_context (embed.js / demo), ולכן השם וזהות
+    הערוץ נשלפים בזמן-ריצה פר-tenant — לא מ-env הגלובלי.
     """
-    business_name = getattr(config, "BUSINESS_NAME", "") or "העסק"
-    telegram_username = (getattr(config, "TELEGRAM_BOT_USERNAME", "") or "").lstrip("@")
-    whatsapp_number = (getattr(config, "TWILIO_WHATSAPP_NUMBER", "") or "").strip()
+    from tenancy import get_current_tenant
+    from control_plane import get_tenant_channel_identity
+
+    business_name = config.get_business_config().name or "העסק"
+    identity = get_tenant_channel_identity(get_current_tenant())
+    telegram_username = (identity.get("telegram_bot_username") or "").lstrip("@")
+    whatsapp_number = (identity.get("whatsapp_number") or "").strip()
 
     footer_label = ""
     footer_url = ""
@@ -392,10 +423,20 @@ def register_widget_routes(app: Flask, csrf) -> None:
 
     @app.route("/widget/embed.js", methods=["GET"])
     def widget_embed_js():
-        if not _widget_feature_enabled():
+        from tenancy import tenant_context
+
+        widget_key = (request.args.get("k") or "").strip() or None
+        tenant = _resolve_widget_tenant(widget_key)
+        if tenant is None:
             return Response("", status=404)
-        widget_cfg = _build_widget_config()
-        config_json = json.dumps(widget_cfg, ensure_ascii=False)
+        with tenant_context(tenant):
+            if not _widget_feature_enabled():
+                return Response("", status=404)
+            widget_cfg = _build_widget_config()
+            if widget_key:
+                # המפתח חוזר בכל קריאת chat — כך ה-API יודע לאיזה tenant
+                widget_cfg["widgetKey"] = widget_key
+            config_json = json.dumps(widget_cfg, ensure_ascii=False)
         body = _WIDGET_JS_TEMPLATE.replace("__CONFIG_JSON__", config_json)
         resp = Response(body, mimetype="application/javascript; charset=utf-8")
         resp.headers["Cache-Control"] = "public, max-age=300"
@@ -406,17 +447,40 @@ def register_widget_routes(app: Flask, csrf) -> None:
     @app.route("/widget/api/chat", methods=["POST", "OPTIONS"])
     @csrf.exempt
     def widget_api_chat():
-        # פיצ'ר כבוי (לא בחבילת "מקצועי") — מחזירים 404 גם ל-OPTIONS וגם
-        # ל-POST, כדי לא לאשר ללקוחות בלתי-משלמים שה-API קיים בכלל.
-        # חייב לרוץ *לפני* ה-preflight handler — אחרת OPTIONS היה מחזיר 204
-        # עם CORS headers ומסגיר את קיום ה-endpoint.
-        if not _widget_feature_enabled():
-            return Response("", status=404)
+        from tenancy import tenant_context
 
-        # Preflight — בלי לוגיקה, רק CORS headers
+        # Preflight — ה-JS מוסיף ?k=<key> ל-URL של ה-fetch, כך שגם OPTIONS
+        # (שאין לו payload) יודע לאיזה tenant לבדוק את שער הפיצ'ר. פיצ'ר
+        # כבוי ⇒ 404 גם ל-OPTIONS — לא מסגירים את קיום ה-endpoint ללקוחות
+        # בלתי-משלמים (ההתנהגות המקורית, עכשיו פר-tenant).
         if request.method == "OPTIONS":
+            pre_key = (request.args.get("k") or "").strip() or None
+            pre_tenant = _resolve_widget_tenant(pre_key)
+            if pre_tenant is None:
+                return Response("", status=404)
+            with tenant_context(pre_tenant):
+                if not _widget_feature_enabled():
+                    return Response("", status=404)
             resp = Response(status=204)
             return _apply_cors(resp)
+
+        payload = request.get_json(silent=True) or {}
+        widget_key = (
+            (payload.get("key") if isinstance(payload.get("key"), str) else "")
+            or request.args.get("k", "")
+        ).strip() or None
+        tenant = _resolve_widget_tenant(widget_key)
+        if tenant is None:
+            return Response("", status=404)
+        with tenant_context(tenant):
+            return _widget_api_chat_impl(payload)
+
+    def _widget_api_chat_impl(payload):
+        # פיצ'ר כבוי (לא בחבילת "מקצועי") — מחזירים 404 כדי לא לאשר
+        # ללקוחות בלתי-משלמים שה-API קיים בכלל. נבדק תחת ה-tenant context
+        # — החבילה של ה-tenant עצמו.
+        if not _widget_feature_enabled():
+            return Response("", status=404)
 
         # אכיפת CORS allowlist על POST: אם הוגדרה רשימה וה-origin לא בתוכה,
         # חוסמים לפני שמגיעים ל-LLM (מונע שימוש לרעה במשאבי OpenAI).
@@ -437,7 +501,6 @@ def register_widget_routes(app: Flask, csrf) -> None:
             })
             return _apply_cors(resp), 429
 
-        payload = request.get_json(silent=True) or {}
         message = payload.get("message")
         if not isinstance(message, str) or not message.strip():
             return _apply_cors(jsonify({"error": "empty_message"})), 400
@@ -483,23 +546,37 @@ def register_widget_routes(app: Flask, csrf) -> None:
 
     @app.route("/widget/demo", methods=["GET"])
     def widget_demo():
-        if not _widget_feature_enabled():
+        from tenancy import tenant_context
+
+        # ?k=<widget_key> — כמו ב-embed.js: בלי מפתח → default (legacy);
+        # מפתח לא רשום → 404. כך הדמו של כל tenant מציג את השם/ההגדרות שלו.
+        widget_key = (request.args.get("k") or "").strip() or None
+        tenant = _resolve_widget_tenant(widget_key)
+        if tenant is None:
             return Response("", status=404)
         # אסור ב-render_template_string — context processor של האדמין
         # ניגש ל-DB ב-_inject_globals ויקרוס אם DB לא מאותחל. במקום
         # זה: HTML קבוע עם .format() (סוגריים מסולסלים ב-CSS = {{...}}).
-        # ⚠️ אבטחה: BUSINESS_NAME מוזרק מ-env ולכן רץ בעקיפין דרך
-        # בעל-העסק/admin, אבל הדף הזה ציבורי. סניטציה דרך html.escape
-        # מבטיחה שכל תו מיוחד יוצג כטקסט ולא כ-HTML/script.
+        # ⚠️ אבטחה: שם העסק מגיע מבעל-העסק/admin, אבל הדף הזה ציבורי.
+        # סניטציה דרך html.escape מבטיחה שכל תו מיוחד יוצג כטקסט ולא
+        # כ-HTML/script.
         # ⚠️ פרוטוקול: מעבירים URL יחסי (/widget/embed.js) ולא absolute.
         # אחרת אם הדף נטען ב-HTTPS אבל request.host_url החזיר http:// (מצב
         # נפוץ ב-Render כש-ProxyFix לא מוגדר), הדפדפן חוסם את ה-script
         # כ-mixed-content בשקט והכפתור הצף פשוט לא מופיע.
         import html as _html
-        widget_cfg = _build_widget_config()
+        from urllib.parse import quote as _quote
+
+        with tenant_context(tenant):
+            if not _widget_feature_enabled():
+                return Response("", status=404)
+            widget_cfg = _build_widget_config()
+        embed_src = "/widget/embed.js"
+        if widget_key:
+            embed_src += f"?k={_quote(widget_key)}"
         body = _WIDGET_DEMO_TEMPLATE.format(
             business_name=_html.escape(widget_cfg["businessName"], quote=True),
-            embed_url="/widget/embed.js",
+            embed_url=embed_src,
         )
         return Response(body, mimetype="text/html; charset=utf-8")
 
@@ -515,9 +592,28 @@ def register_widget_admin_routes(app: Flask, login_required) -> None:
     @app.route("/widget-embed", methods=["GET"], endpoint="widget_embed_admin")
     @login_required
     def widget_embed_admin():
+        from urllib.parse import quote as _quote
+        from tenancy import DEFAULT_TENANT, get_current_tenant
+
         host = request.host_url.rstrip("/")
         embed_url = f"{host}/widget/embed.js"
         demo_url = f"{host}/widget/demo"
+
+        # פר-tenant: קטע ההטמעה חייב לכלול ?k=<widget_key>, אחרת ה-widget
+        # באתר הלקוח ידבר עם ה-tenant של ברירת המחדל. המפתח נוצר כאן
+        # בביקור הראשון (אותו דפוס auto-provision כמו מפתחות ה-webhook).
+        # ה-default נשאר בלי מפתח — התנהגות legacy.
+        tenant = get_current_tenant()
+        if tenant != DEFAULT_TENANT:
+            import control_plane as _cp
+
+            widget_key = _cp.get_tenant_route_key(tenant, "widget_key")
+            if not widget_key:
+                widget_key = _cp.generate_route_key()
+                _cp.set_route("widget_key", widget_key, tenant)
+            embed_url += f"?k={_quote(widget_key)}"
+            demo_url += f"?k={_quote(widget_key)}"
+
         widget_cfg = _build_widget_config()
         return render_template(
             "widget_embed.html",
@@ -839,9 +935,12 @@ _WIDGET_JS_TEMPLATE = r"""
       message: text,
       history: history.slice(0, -1).slice(-20),
       session_id: sessionId,
+      key: CONFIG.widgetKey || null,
     };
 
-    fetch(apiBase + '/widget/api/chat', {
+    var chatUrl = apiBase + '/widget/api/chat' +
+      (CONFIG.widgetKey ? ('?k=' + encodeURIComponent(CONFIG.widgetKey)) : '');
+    fetch(chatUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),
