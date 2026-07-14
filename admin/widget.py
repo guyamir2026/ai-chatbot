@@ -581,6 +581,106 @@ def register_widget_routes(app: Flask, csrf) -> None:
         return Response(body, mimetype="text/html; charset=utf-8")
 
 
+# ─── הוראות הטמעה לבעל העסק — מקור אמת יחיד + הורדת Markdown ─────────────────
+
+# Data-attributes של ה-widget. מקור אמת יחיד: גם טבלת ההסבר בעמוד ההטמעה
+# (widget_embed.html) וגם הורדת ה-Markdown נבנים מכאן — כדי שלא יסטו זה מזה.
+_WIDGET_DATA_ATTRIBUTES = [
+    ("data-position", "bottom-right", "מיקום הכפתור: bottom-right / bottom-left / top-right / top-left"),
+    ("data-color", "#2563eb", "צבע ראשי (hex / rgb / שם CSS)"),
+    ("data-bg", "#ffffff", "צבע רקע חלון הצ'אט"),
+    ("data-text", "#1f2937", "צבע הטקסט בחלון"),
+    ("data-font", "system-ui", "שם פונט (עד 100 תווים)"),
+    ("data-radius", "16", "רדיוס פינות בפיקסלים (0–32)"),
+    ("data-width", "360", "רוחב חלון בפיקסלים (280–600)"),
+    ("data-height", "520", "גובה חלון בפיקסלים (360–800)"),
+    ("data-icon", "💬", "אייקון על הכפתור הצף (עד 8 תווים)"),
+    ("data-title", "שם העסק", "כותרת בראש החלון"),
+    ("data-subtitle", "נשמח לעזור", "תת-כותרת קטנה"),
+    ("data-auto-open", "false", '"true" יפתח את החלון אוטומטית'),
+]
+
+
+def _widget_embed_urls() -> tuple[str, str]:
+    """(embed_url, demo_url) עם ?k=<widget_key> פר-tenant (auto-provision).
+
+    משותף לעמוד ההטמעה ולהורדת ה-Markdown — כדי לא לשכפל את לוגיקת
+    ה-provision של מפתח ה-widget.
+    """
+    from urllib.parse import quote as _quote
+    from tenancy import DEFAULT_TENANT, get_current_tenant
+
+    host = request.host_url.rstrip("/")
+    embed_url = f"{host}/widget/embed.js"
+    demo_url = f"{host}/widget/demo"
+    tenant = get_current_tenant()
+    if tenant != DEFAULT_TENANT:
+        import control_plane as _cp
+
+        widget_key = _cp.get_tenant_route_key(tenant, "widget_key")
+        if not widget_key:
+            widget_key = _cp.generate_route_key()
+            _cp.set_route("widget_key", widget_key, tenant)
+        embed_url += f"?k={_quote(widget_key)}"
+        demo_url += f"?k={_quote(widget_key)}"
+    return embed_url, demo_url
+
+
+def _build_widget_embed_markdown(embed_url: str, demo_url: str, business_name: str) -> str:
+    """מסמך Markdown עם הוראות ההטמעה — להורדה ולשליחה למפתח האתר."""
+    attr_rows = "\n".join(
+        f"| `{name}` | {default} | {desc} |"
+        for name, default, desc in _WIDGET_DATA_ATTRIBUTES
+    )
+    return f"""# הטמעת צ'אט-בוט באתר — הוראות למפתח
+
+מסמך זה הופק מפאנל הניהול של **{business_name}**. מסרו אותו למפתח האתר.
+
+## שלב 1 — הטמעה מהירה
+
+הוסיפו את השורה הבאה לפני התג `</body>` בכל עמוד באתר:
+
+```html
+<script src="{embed_url}" async></script>
+```
+
+הסקריפט יוצר כפתור צ'אט צף בפינה הימנית-תחתונה, מחובר לעוזר הדיגיטלי של העסק.
+
+## שלב 2 — התאמה אישית (אופציונלי)
+
+שליטה בעיצוב דרך data-* attributes:
+
+```html
+<script src="{embed_url}"
+        data-position="bottom-right"
+        data-color="#2563eb"
+        data-font="Heebo, sans-serif"
+        data-radius="20"
+        data-title="העוזר של {business_name}"
+        async></script>
+```
+
+| Attribute | ברירת מחדל | הסבר |
+|---|---|---|
+{attr_rows}
+
+## שלב 3 — בדיקה
+
+עמוד הדגמה לבדיקת ה-widget לפני העלאה לאתר: {demo_url}
+
+## שלב 4 — אבטחה (מומלץ)
+
+כדי למנוע שימוש לרעה במשאבי ה-API, הגבילו את השימוש לאתר שלכם בלבד — הוסיפו משתנה סביבה בשרת (למשל Render → Environment):
+
+```
+WIDGET_ALLOWED_ORIGINS=https://your-site.com,https://www.your-site.com
+```
+
+ללא הגדרה — ה-widget פועל מכל אתר. עם רשימה — בקשות מ-origin אחר ייחסמו (HTTP 403).
+יש גם תקרת בקשות פר-IP (`WIDGET_RATE_LIMIT_PER_HOUR`, ברירת מחדל 30) כקו הגנה שני.
+"""
+
+
 def register_widget_admin_routes(app: Flask, login_required) -> None:
     """רושם את עמוד הוראות ההטמעה הפנימי לבעל העסק.
 
@@ -592,35 +692,32 @@ def register_widget_admin_routes(app: Flask, login_required) -> None:
     @app.route("/widget-embed", methods=["GET"], endpoint="widget_embed_admin")
     @login_required
     def widget_embed_admin():
-        from urllib.parse import quote as _quote
-        from tenancy import DEFAULT_TENANT, get_current_tenant
-
-        host = request.host_url.rstrip("/")
-        embed_url = f"{host}/widget/embed.js"
-        demo_url = f"{host}/widget/demo"
-
-        # פר-tenant: קטע ההטמעה חייב לכלול ?k=<widget_key>, אחרת ה-widget
-        # באתר הלקוח ידבר עם ה-tenant של ברירת המחדל. המפתח נוצר כאן
-        # בביקור הראשון (אותו דפוס auto-provision כמו מפתחות ה-webhook).
-        # ה-default נשאר בלי מפתח — התנהגות legacy.
-        tenant = get_current_tenant()
-        if tenant != DEFAULT_TENANT:
-            import control_plane as _cp
-
-            widget_key = _cp.get_tenant_route_key(tenant, "widget_key")
-            if not widget_key:
-                widget_key = _cp.generate_route_key()
-                _cp.set_route("widget_key", widget_key, tenant)
-            embed_url += f"?k={_quote(widget_key)}"
-            demo_url += f"?k={_quote(widget_key)}"
-
+        # embed_url/demo_url כולל provision של מפתח ה-widget הפר-tenant —
+        # ראה _widget_embed_urls (משותף עם route ההורדה).
+        embed_url, demo_url = _widget_embed_urls()
         widget_cfg = _build_widget_config()
         return render_template(
             "widget_embed.html",
             embed_url=embed_url,
             demo_url=demo_url,
             widget_config=widget_cfg,
+            data_attributes=_WIDGET_DATA_ATTRIBUTES,
         )
+
+    @app.route("/widget-embed/download", methods=["GET"], endpoint="widget_embed_download")
+    @login_required
+    def widget_embed_download():
+        """הורדת הוראות ההטמעה כקובץ Markdown — לשליחה למפתח האתר."""
+        embed_url, demo_url = _widget_embed_urls()
+        cfg = _build_widget_config()
+        md = _build_widget_embed_markdown(
+            embed_url, demo_url, cfg.get("businessName", ""),
+        )
+        resp = Response(md, mimetype="text/markdown; charset=utf-8")
+        resp.headers["Content-Disposition"] = (
+            'attachment; filename="widget-embed-instructions.md"'
+        )
+        return resp
 
 
 # ─── ה-JavaScript של ה-widget ────────────────────────────────────────────────

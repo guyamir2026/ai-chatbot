@@ -39,6 +39,21 @@
     </p>
 </div>
 
+{# הורדת ההוראות כקובץ Markdown — לבעל עסק לא-טכני שמעביר למפתח #}
+<div class="card animate-slide-up" style="margin-bottom: var(--space-md); border-right: 4px solid var(--primary);">
+    <div class="card-body" style="display: flex; align-items: center; justify-content: space-between; gap: 1rem; flex-wrap: wrap;">
+        <div>
+            <strong><i class="bi bi-person-gear"></i> לא מתעסקים בקוד?</strong>
+            <div class="text-small text-muted" style="margin-top: 4px;">
+                הורידו את תוכן הדף כקובץ ושלחו למפתח האתר שלכם — הוא יידע בדיוק מה לעשות.
+            </div>
+        </div>
+        <a href="{{ url_for('widget_embed_download') }}" class="btn btn-primary" download>
+            <i class="bi bi-download"></i> הורד את ההוראות למפתח
+        </a>
+    </div>
+</div>
+
 <div class="card animate-slide-up stagger-1">
     <div class="card-header">
         <span><i class="bi bi-rocket-takeoff"></i> שלב 1 — הטמעה מהירה</span>
@@ -89,18 +104,11 @@
                 </tr>
             </thead>
             <tbody>
-                <tr><td><code>data-position</code></td><td>bottom-right</td><td>מיקום הכפתור: bottom-right / bottom-left / top-right / top-left</td></tr>
-                <tr><td><code>data-color</code></td><td>#2563eb</td><td>צבע ראשי (hex / rgb / שם CSS)</td></tr>
-                <tr><td><code>data-bg</code></td><td>#ffffff</td><td>צבע רקע חלון הצ'אט</td></tr>
-                <tr><td><code>data-text</code></td><td>#1f2937</td><td>צבע הטקסט בחלון</td></tr>
-                <tr><td><code>data-font</code></td><td>system-ui</td><td>שם פונט (עד 100 תווים)</td></tr>
-                <tr><td><code>data-radius</code></td><td>16</td><td>רדיוס פינות בפיקסלים (0–32)</td></tr>
-                <tr><td><code>data-width</code></td><td>360</td><td>רוחב חלון בפיקסלים (280–600)</td></tr>
-                <tr><td><code>data-height</code></td><td>520</td><td>גובה חלון בפיקסלים (360–800)</td></tr>
-                <tr><td><code>data-icon</code></td><td>💬</td><td>אייקון על הכפתור הצף (עד 8 תווים)</td></tr>
-                <tr><td><code>data-title</code></td><td>שם העסק</td><td>כותרת בראש החלון</td></tr>
-                <tr><td><code>data-subtitle</code></td><td>נשמח לעזור</td><td>תת-כותרת קטנה</td></tr>
-                <tr><td><code>data-auto-open</code></td><td>false</td><td><code>"true"</code> יפתח את החלון אוטומטית</td></tr>
+                {# מקור אמת יחיד: _WIDGET_DATA_ATTRIBUTES ב-admin/widget.py
+                   (משותף עם הורדת ה-Markdown, כדי שהטבלה לא תסטה) #}
+                {% for name, default, desc in data_attributes %}
+                <tr><td><code>{{ name }}</code></td><td>{{ default }}</td><td>{{ desc }}</td></tr>
+                {% endfor %}
             </tbody>
         </table>
         </div>

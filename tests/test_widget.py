@@ -982,6 +982,32 @@ class TestPerTenantWidget:
         client.get("/widget-embed")
         assert cp.get_tenant_route_key("widget-biz", "widget_key") == key
 
+    def test_embed_page_renders_attributes_table(self, widget_client):
+        """טבלת ה-attributes בעמוד נבנית מהמקור היחיד (loop על data_attributes)."""
+        client, _ = widget_client
+        self._login(client)
+        body = client.get("/widget-embed").get_data(as_text=True)
+        assert "data-position" in body
+        assert "data-auto-open" in body
+        # כפתור ההורדה למפתח מופיע
+        assert "/widget-embed/download" in body
+
+    def test_embed_download_returns_markdown_file(self, widget_client):
+        """הורדת ההוראות — קובץ Markdown מצורף עם התוכן למפתח."""
+        client, _ = widget_client
+        self._login(client)
+        resp = client.get("/widget-embed/download")
+        assert resp.status_code == 200
+        assert "text/markdown" in resp.headers["Content-Type"]
+        cd = resp.headers["Content-Disposition"]
+        assert "attachment" in cd
+        assert "widget-embed-instructions.md" in cd
+        body = resp.get_data(as_text=True)
+        assert body.startswith("# הטמעת")            # כותרת Markdown
+        assert "/widget/embed.js" in body             # קוד ההטמעה
+        assert "`data-position`" in body              # טבלת ה-attributes (מהמקור היחיד)
+        assert "WIDGET_ALLOWED_ORIGINS" in body       # סעיף האבטחה
+
     def test_demo_with_key_shows_tenant_name(self, widget_client):
         """demo?k= מציג את שם העסק של ה-tenant, לא של ה-default."""
         client, _ = widget_client
