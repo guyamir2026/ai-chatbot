@@ -1,0 +1,74 @@
+<!-- fragment של תצוגה מקדימה ל-WhatsApp, מעודכן ב-HTMX מכל שינוי בטופס -->
+
+{% if preview.warnings %}
+<div style="margin-bottom: var(--space-sm);">
+    {% for w in preview.warnings %}
+    <div class="alert alert-warning text-small" style="padding: 0.5rem; margin-bottom: 0.25rem;">
+        <i class="bi bi-exclamation-triangle"></i> {{ w }}
+    </div>
+    {% endfor %}
+</div>
+{% endif %}
+
+<div class="wa-bubble-container">
+    {% if preview.header_type == "image" %}
+    <div style="background: #d0d0d0; border-radius: 0.5rem; padding: 2rem; text-align: center; color: #888;">
+        <i class="bi bi-image" style="font-size: 2rem;"></i>
+        <div class="text-small">תמונת Header</div>
+    </div>
+    {% elif preview.header_type == "video" %}
+    <div style="background: #d0d0d0; border-radius: 0.5rem; padding: 2rem; text-align: center; color: #888;">
+        <i class="bi bi-camera-video" style="font-size: 2rem;"></i>
+        <div class="text-small">וידאו Header</div>
+    </div>
+    {% elif preview.header_type == "document" %}
+    <div style="background: #d0d0d0; border-radius: 0.5rem; padding: 1rem; text-align: center; color: #888;">
+        <i class="bi bi-file-earmark"></i> מסמך Header
+    </div>
+    {% elif preview.header_type == "location" %}
+    <div style="background: #d0d0d0; border-radius: 0.5rem; padding: 1rem; text-align: center; color: #888;">
+        <i class="bi bi-geo-alt"></i> מיקום Header
+    </div>
+    {% endif %}
+
+    <div class="wa-bubble">{% if preview.body %}{{ preview.body_html | safe }}{% else %}(גוף ההודעה ריק){% endif %}{% if preview.footer %}
+<div class="wa-footer">{{ preview.footer_html | safe }}</div>{% endif %}</div>
+
+    {% if preview.buttons %}
+    <div class="wa-buttons">
+        {% for btn in preview.buttons %}
+        <div class="wa-button">
+            {% if btn.type == "quick_reply" %}
+            <i class="bi bi-reply"></i>
+            {% elif btn.type == "call_to_action" %}
+            <i class="bi bi-link-45deg"></i>
+            {% elif btn.type == "list_item" %}
+            <i class="bi bi-list"></i>
+            {% endif %}
+            {{ btn.title or "(ללא טקסט)" }}
+            {% if btn.description %}
+            <div class="text-small text-muted">{{ btn.description }}</div>
+            {% endif %}
+        </div>
+        {% endfor %}
+    </div>
+    {% endif %}
+</div>
+
+<div class="text-small text-muted" style="margin-top: 0.5rem; display: flex; justify-content: space-between;">
+    <span>
+        <i class="bi bi-textarea-t"></i>
+        אורך: {{ preview.body_length }}
+    </span>
+    <span>
+        {% if preview.can_send %}
+        <span class="badge badge-success">
+            <i class="bi bi-check-circle"></i> מוכן לשליחה
+        </span>
+        {% else %}
+        <span class="badge badge-warning">
+            <i class="bi bi-clock"></i> טיוטה
+        </span>
+        {% endif %}
+    </span>
+</div>
