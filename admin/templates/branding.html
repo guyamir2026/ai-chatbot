@@ -1,0 +1,95 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="page-header animate-fade-in">
+    <h1><i class="bi bi-image"></i> מיתוג עסקי</h1>
+</div>
+
+<div class="content-two-col">
+    <!-- תצוגת הלוגו הנוכחי -->
+    <div class="card animate-slide-up stagger-1">
+        <div class="card-header">
+            <span><i class="bi bi-eye"></i> לוגו נוכחי</span>
+        </div>
+        <div class="card-body" style="text-align: center;">
+            {% if has_logo %}
+            <div style="margin-bottom: var(--space-md);">
+                <img src="{{ url_for('branding_logo_serve') }}?t={{ logo_uploaded_at }}"
+                     alt="לוגו עסקי"
+                     style="max-width: 200px; max-height: 200px; border: 1px solid var(--border); border-radius: var(--radius-md); padding: var(--space-sm); background: #f5f5f5;">
+            </div>
+            <p class="text-small text-muted" style="margin-bottom: var(--space-md);">
+                הועלה: {{ logo_uploaded_at | il_datetime }}
+            </p>
+
+            <form method="POST" action="{{ url_for('branding_logo_delete') }}"
+                  onsubmit="return confirm('למחוק את הלוגו?');"
+                  style="display: inline;">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <button type="submit" class="btn btn-danger btn-sm">
+                    <i class="bi bi-trash"></i> מחק לוגו
+                </button>
+            </form>
+            {% else %}
+            <div class="empty-state">
+                <i class="bi bi-image" style="color: var(--text-muted);"></i>
+                <p>עדיין לא הועלה לוגו עסקי.</p>
+                <p class="text-small text-muted">
+                    העלו את הלוגו בטופס משמאל כדי לכלול אותו ב-QR Code של הבוט.
+                </p>
+            </div>
+            {% endif %}
+        </div>
+    </div>
+
+    <!-- טופס העלאה -->
+    <div class="card animate-slide-up stagger-2">
+        <div class="card-header">
+            <span><i class="bi bi-upload"></i> {% if has_logo %}החלפת לוגו{% else %}העלאת לוגו{% endif %}</span>
+        </div>
+        <div class="card-body">
+            <form method="POST" action="{{ url_for('branding_logo_upload') }}" enctype="multipart/form-data">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+
+                <div class="form-group">
+                    <label for="logo">בחרו קובץ</label>
+                    <input type="file"
+                           id="logo"
+                           name="logo"
+                           class="form-control"
+                           accept="image/png,image/jpeg"
+                           required>
+                    <small class="text-muted">PNG או JPG · עד 5MB · רצוי תמונה ריבועית, אבל מלבני יעבוד גם.</small>
+                </div>
+
+                <button type="submit" class="btn btn-primary" style="width: 100%;">
+                    <i class="bi bi-cloud-upload"></i>
+                    {% if has_logo %}החלף לוגו{% else %}העלה לוגו{% endif %}
+                </button>
+            </form>
+
+            <hr style="margin: var(--space-md) 0; border-color: var(--border);">
+
+            <div>
+                <h4 style="font-size: 0.9rem; margin-bottom: var(--space-xs);">איפה הלוגו יופיע</h4>
+                <ul class="text-small text-muted" style="padding-right: 1.2rem; margin: 0;">
+                    <li>במרכז ה-QR Code של הבוט (אופציונלי, לסימון בעמוד QR)</li>
+                </ul>
+            </div>
+
+            <hr style="margin: var(--space-md) 0; border-color: var(--border);">
+
+            <div>
+                <h4 style="font-size: 0.9rem; margin-bottom: var(--space-xs);">המלצות לאיכות מקסימלית</h4>
+                <ul class="text-small text-muted" style="padding-right: 1.2rem; margin: 0;">
+                    <li>תמונה ריבועית (אם מלבני — נוסיף שוליים שקופים אוטומטית)</li>
+                    <li>רקע שקוף (PNG) — נראה הכי טוב על QR</li>
+                    <li><strong>לוגו פשוט עם 1-2 אלמנטים בלבד</strong> — אייקון יחיד עובד הכי טוב. לוגו עם טקסט קטן או איור מורכב לא יהיה קריא במרכז ה-QR.</li>
+                    <li><strong>רזולוציה ≥800x800</strong> — הלוגו נשמר ברזולוציה מלאה (עד 2048x2048) כדי לשמור איכות בהורדות גדולות.</li>
+                    <li><strong>בעמוד QR — בחרו "גדול (20x)" או "גדול מאוד (30x)" להורדה</strong>. גודל קטן = לוגו של 90 פיקסלים בלבד = תוצאה מטושטשת.</li>
+                </ul>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
