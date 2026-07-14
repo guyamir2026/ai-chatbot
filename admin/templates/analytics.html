@@ -1,0 +1,352 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="page-header animate-fade-in">
+    <h1><i class="bi bi-graph-up"></i> אנליטיקות צ'אטבוט</h1>
+    <div class="d-flex gap-sm">
+        <a href="/analytics?days=7" class="btn {% if days == 7 %}btn-primary{% else %}btn-secondary{% endif %} btn-sm">7 ימים</a>
+        <a href="/analytics?days=30" class="btn {% if days == 30 %}btn-primary{% else %}btn-secondary{% endif %} btn-sm">30 יום</a>
+        <a href="/analytics?days=90" class="btn {% if days == 90 %}btn-primary{% else %}btn-secondary{% endif %} btn-sm">90 יום</a>
+    </div>
+</div>
+
+<!-- כרטיסי KPI -->
+<div class="stats-grid">
+    <div class="stat-card gradient-blue animate-slide-up stagger-1">
+        <div class="stat-icon"><i class="bi bi-chat-left-text"></i></div>
+        <div class="stat-value">{{ summary.total_user_messages }}</div>
+        <div class="stat-label">הודעות משתמשים</div>
+    </div>
+    <div class="stat-card gradient-info animate-slide-up stagger-2">
+        <div class="stat-icon"><i class="bi bi-people"></i></div>
+        <div class="stat-value">{{ summary.unique_users }}</div>
+        <div class="stat-label">משתמשים ייחודיים</div>
+    </div>
+    <div class="stat-card gradient-warning animate-slide-up stagger-3">
+        <div class="stat-icon"><i class="bi bi-exclamation-triangle"></i></div>
+        <div class="stat-value">{{ summary.fallback_rate }}%</div>
+        <div class="stat-label">אחוז ללא מענה</div>
+    </div>
+    <div class="stat-card gradient-purple animate-slide-up stagger-4">
+        <div class="stat-icon"><i class="bi bi-bell"></i></div>
+        <div class="stat-value">{{ summary.agent_request_count }}</div>
+        <div class="stat-label">בקשות נציג</div>
+    </div>
+    <div class="stat-card gradient-success animate-slide-up stagger-5">
+        <div class="stat-icon"><i class="bi bi-arrow-repeat"></i></div>
+        <div class="stat-value">{{ engagement.returning_users }}</div>
+        <div class="stat-label">משתמשים חוזרים</div>
+    </div>
+    <div class="stat-card gradient-dark animate-slide-up stagger-5">
+        <div class="stat-icon"><i class="bi bi-chat-square-text"></i></div>
+        <div class="stat-value">{{ engagement.avg_messages_per_user }}</div>
+        <div class="stat-label">ממוצע הודעות/משתמש</div>
+    </div>
+</div>
+
+<!-- מעורבות משתמשים — פירוט -->
+<div class="card animate-slide-up stagger-3" style="margin-bottom: var(--space-sm);">
+    <div class="card-header">
+        <span><i class="bi bi-people"></i> מעורבות משתמשים</span>
+    </div>
+    <div class="card-body">
+        <div class="analytics-engagement-grid">
+            <div class="engagement-item">
+                <div class="engagement-value">{{ engagement.total_users }}</div>
+                <div class="engagement-label">סה"כ משתמשים</div>
+            </div>
+            <div class="engagement-item">
+                <div class="engagement-value">{{ engagement.single_message_users }}</div>
+                <div class="engagement-label">הודעה בודדת (drop-off)</div>
+            </div>
+            <div class="engagement-item">
+                <div class="engagement-value">{{ engagement.engaged_users }}</div>
+                <div class="engagement-label">5+ הודעות (מעורבים)</div>
+            </div>
+            <div class="engagement-item">
+                {% set drop_rate = ((engagement.single_message_users / engagement.total_users * 100) | round(1)) if engagement.total_users > 0 else 0 %}
+                <div class="engagement-value {% if drop_rate > 50 %}text-danger{% endif %}">{{ drop_rate }}%</div>
+                <div class="engagement-label">שיעור נטישה</div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- גרף הודעות יומי -->
+<div class="card animate-slide-up stagger-3" style="margin-bottom: var(--space-sm);">
+    <div class="card-header">
+        <span><i class="bi bi-bar-chart"></i> הודעות לפי יום</span>
+    </div>
+    <div class="card-body">
+        {% if daily %}
+        <div class="analytics-chart-container">
+            {% set max_val = daily | map(attribute='user_messages') | max %}
+            {% for d in daily %}
+            <div class="analytics-bar-group" title="{{ d.day }}: {{ d.user_messages }} הודעות, {{ d.unique_users }} משתמשים">
+                <div class="analytics-bar"
+                     style="height: {{ (d.user_messages / max_val * 100) if max_val > 0 else 0 }}%">
+                    <span class="analytics-bar-value">{{ d.user_messages }}</span>
+                </div>
+                <div class="analytics-bar-label">{{ d.day[-5:] }}</div>
+            </div>
+            {% endfor %}
+        </div>
+        {% else %}
+        <div class="empty-state">
+            <i class="bi bi-bar-chart"></i>
+            <p>אין נתונים לתקופה הנבחרת.</p>
+        </div>
+        {% endif %}
+    </div>
+</div>
+
+<!-- התפלגות לפי שעות -->
+<div class="card animate-slide-up stagger-4" style="margin-bottom: var(--space-sm);">
+    <div class="card-header">
+        <span><i class="bi bi-clock"></i> התפלגות לפי שעה ביום</span>
+    </div>
+    <div class="card-body">
+        {% set max_hourly = hourly | map(attribute='message_count') | max %}
+        {% if max_hourly > 0 %}
+        <div class="analytics-chart-container analytics-hours-chart">
+            {% for h in hourly %}
+            <div class="analytics-bar-group" title="{{ '%02d:00' | format(h.hour) }} — {{ h.message_count }} הודעות">
+                <div class="analytics-bar analytics-bar-hour"
+                     style="height: {{ (h.message_count / max_hourly * 100) }}%">
+                </div>
+                <div class="analytics-bar-label">{{ '%02d' | format(h.hour) }}</div>
+            </div>
+            {% endfor %}
+        </div>
+        {% else %}
+        <div class="empty-state">
+            <i class="bi bi-clock"></i>
+            <p>אין נתונים לתקופה הנבחרת.</p>
+        </div>
+        {% endif %}
+    </div>
+</div>
+
+<div class="content-two-col">
+    <!-- שאלות חמות ללא מענה — drill-down -->
+    <div class="card animate-slide-up stagger-4">
+        <div class="card-header">
+            <span><i class="bi bi-question-circle"></i> שאלות חמות ללא מענה</span>
+            <a href="/knowledge-gaps" class="btn btn-secondary btn-sm">כל הפערים</a>
+        </div>
+        <div class="card-body">
+            {% if top_unanswered %}
+            <div class="list-group">
+                {% for q in top_unanswered %}
+                <div class="list-group-item">
+                    <div class="d-flex justify-between align-center">
+                        <div style="flex:1;">
+                            <span style="color: var(--text-secondary);">{{ q.question }}</span>
+                            <br>
+                            <span class="text-small text-muted">
+                                נשאלה {{ q.ask_count }} פעמים · אחרונה: {{ q.last_asked|il_datetime }}
+                            </span>
+                        </div>
+                        <div class="d-flex gap-sm align-center">
+                            {% if q.status == 'open' %}
+                            <a href="/kb/add?question={{ q.question|urlencode }}"
+                               class="btn btn-primary btn-sm">
+                                <i class="bi bi-plus-circle"></i> הוסף תשובה
+                            </a>
+                            {% else %}
+                            <span class="badge badge-success">נפתר</span>
+                            {% endif %}
+                        </div>
+                    </div>
+                </div>
+                {% endfor %}
+            </div>
+            {% else %}
+            <div class="empty-state">
+                <i class="bi bi-check-circle"></i>
+                <p>אין שאלות ללא מענה בתקופה.</p>
+            </div>
+            {% endif %}
+        </div>
+    </div>
+
+    <!-- שיחות שנגמרו בהודעה אחת (drop-off) -->
+    <div class="card animate-slide-up stagger-5">
+        <div class="card-header">
+            <span><i class="bi bi-box-arrow-left"></i> נטישות (הודעה בודדת)</span>
+        </div>
+        <div class="card-body">
+            {% if drop_offs %}
+            <div class="list-group">
+                {% for d in drop_offs %}
+                <div class="list-group-item">
+                    <div class="d-flex justify-between align-center">
+                        <div style="flex:1;">
+                            <span class="fw-semibold">{{ (d.username or d.user_id)|mask_name }}</span>{% set _note_user_id = d.user_id %}{% include "partials/user_note_icon.html" %}
+                            <br><span style="color: var(--text-secondary);">{{ d.message[:120] }}{% if d.message|length > 120 %}...{% endif %}</span>
+                            <br><span class="text-small text-muted">{{ d.created_at|il_datetime }}</span>
+                        </div>
+                        <a href="/conversations?user_id={{ d.user_id|urlencode }}" class="btn btn-secondary btn-sm">
+                            <i class="bi bi-chat-dots"></i>
+                        </a>
+                    </div>
+                </div>
+                {% endfor %}
+            </div>
+            {% else %}
+            <div class="empty-state">
+                <i class="bi bi-check-circle"></i>
+                <p>אין נטישות בתקופה. מצוין!</p>
+            </div>
+            {% endif %}
+        </div>
+    </div>
+</div>
+
+<!-- מקורות ידע פופולריים -->
+<div class="card animate-slide-up stagger-5" style="margin-top: var(--space-sm);">
+    <div class="card-header">
+        <span><i class="bi bi-book"></i> מקורות ידע פופולריים</span>
+        <a href="/kb" class="btn btn-secondary btn-sm">בסיס ידע</a>
+    </div>
+    <div class="card-body">
+        {% if popular_sources %}
+        <div class="list-group">
+            {% for s in popular_sources %}
+            <div class="list-group-item">
+                <div class="d-flex justify-between align-center">
+                    <span>{{ s.sources }}</span>
+                    <span class="badge badge-info">צוטט {{ s.cite_count }} פעמים</span>
+                </div>
+            </div>
+            {% endfor %}
+        </div>
+        {% else %}
+        <div class="empty-state">
+            <i class="bi bi-book"></i>
+            <p>אין נתוני ציטוט לתקופה הנבחרת.</p>
+        </div>
+        {% endif %}
+    </div>
+</div>
+
+<!-- ─── Broadcast (קמפיינים יזומים) ─────────────────────────────────────── -->
+{% if bcast_summary is defined %}
+<div class="page-header animate-fade-in" style="margin-top: var(--space-md);">
+    <h2><i class="bi bi-megaphone"></i> קמפיינים יזומים (Broadcast)</h2>
+    <div class="text-small text-muted">
+        מטריקות מצטברות מכל הקמפיינים, ללא תלות בפילטר התקופה למעלה.
+    </div>
+</div>
+
+<div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: var(--space-sm); margin-bottom: var(--space-sm);" class="animate-slide-up stagger-1">
+    <div class="card" style="padding: var(--space-sm);">
+        <div class="text-small text-muted">סה"כ קמפיינים</div>
+        <div style="font-size: 2rem; font-weight: bold;">{{ bcast_summary.total_campaigns }}</div>
+    </div>
+    <div class="card" style="padding: var(--space-sm);">
+        <div class="text-small text-muted">סה"כ נמענים</div>
+        <div style="font-size: 2rem; font-weight: bold;">{{ bcast_totals.total_recipients or 0 }}</div>
+    </div>
+    <div class="card" style="padding: var(--space-sm); background: rgba(0,123,255,0.06);">
+        <div class="text-small text-muted">נשלחו ב-Twilio</div>
+        <div style="font-size: 2rem; font-weight: bold;">{{ bcast_totals.total_sent or 0 }}</div>
+    </div>
+    <div class="card" style="padding: var(--space-sm); background: rgba(40,167,69,0.08);">
+        <div class="text-small text-muted">נמסרו</div>
+        <div style="font-size: 2rem; font-weight: bold; color: #28a745;">{{ bcast_totals.total_delivered or 0 }}</div>
+        <div class="text-small text-muted">{{ "%.1f"|format(bcast_rates.delivery_rate) }}% מ-sent</div>
+    </div>
+    <div class="card" style="padding: var(--space-sm); background: rgba(40,167,69,0.12);">
+        <div class="text-small text-muted">נקראו</div>
+        <div style="font-size: 2rem; font-weight: bold; color: #1e7e34;">{{ bcast_totals.total_read or 0 }}</div>
+        <div class="text-small text-muted">{{ "%.1f"|format(bcast_rates.read_rate) }}% מ-delivered</div>
+    </div>
+    <div class="card" style="padding: var(--space-sm); background: rgba(220,53,69,0.08);">
+        <div class="text-small text-muted">נכשלו</div>
+        <div style="font-size: 2rem; font-weight: bold; color: #dc3545;">{{ bcast_totals.total_failed or 0 }}</div>
+    </div>
+</div>
+
+<div class="card animate-slide-up stagger-2" style="margin-bottom: var(--space-sm);">
+    <div class="card-header">
+        <span><i class="bi bi-pie-chart"></i> קמפיינים לפי סטטוס</span>
+    </div>
+    <div class="card-body">
+        {% if bcast_summary.by_status %}
+        <div style="display: flex; flex-wrap: wrap; gap: 0.5rem;">
+            {% set _bcast_status_labels = {
+                "draft": "draft",
+                "scheduled": "מתוזמנים",
+                "sending": "בשליחה",
+                "paused": "מושהים",
+                "completed": "הושלמו",
+                "failed": "נכשלו"
+            } %}
+            {% set _bcast_status_colors = {
+                "draft": "muted", "scheduled": "info",
+                "sending": "warning", "paused": "muted",
+                "completed": "success", "failed": "danger"
+            } %}
+            {% for status, count in bcast_summary.by_status.items() %}
+            <div style="padding: 0.75rem 1.25rem; background: var(--bg-secondary); border-radius: var(--radius);">
+                <span class="badge badge-{{ _bcast_status_colors.get(status, 'muted') }}">{{ _bcast_status_labels.get(status, status) }}</span>
+                <strong style="margin-right: 0.5rem;">{{ count }}</strong>
+            </div>
+            {% endfor %}
+        </div>
+        {% else %}
+        <div class="text-muted" style="text-align: center;">אין קמפיינים עדיין.</div>
+        {% endif %}
+    </div>
+</div>
+
+<div class="card animate-slide-up stagger-3" style="margin-bottom: var(--space-sm);">
+    <div class="card-header">
+        <span><i class="bi bi-exclamation-triangle"></i> שגיאות נפוצות (כל הקמפיינים)</span>
+    </div>
+    <div class="card-body" style="padding: 0;">
+        {% if bcast_summary.top_errors %}
+        <div style="overflow-x: auto;">
+        <table class="data-table" style="width: 100%;">
+            <thead>
+                <tr>
+                    <th>קוד שגיאה</th>
+                    <th>כמה פעמים</th>
+                    <th>משמעות (Twilio)</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% set _twilio_err_labels = {
+                    "63016": "המספר לא פעיל על WhatsApp",
+                    "63018": "חריגה מ-rate limit של Meta",
+                    "63024": "המשתמש חסם את החשבון",
+                    "63032": "תבנית לא מאושרת ע״י Meta",
+                    "21408": "מספר טלפון לא תקין",
+                    "21211": "מספר To לא תקף",
+                    "INVALID_PHONE": "פורמט טלפון ישראלי שגוי (ולידציה מקומית)",
+                    "local_error": "כשל פנימי בשרת (ראו לוג)",
+                    "UNKNOWN": "לא צוין קוד שגיאה"
+                } %}
+                {% for e in bcast_summary.top_errors %}
+                <tr>
+                    <td><span class="badge badge-danger">{{ e.error_code }}</span></td>
+                    <td><strong>{{ e.count }}</strong></td>
+                    <td class="text-small text-muted">
+                        {{ _twilio_err_labels.get(e.error_code, "—") }}
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        </div>
+        {% else %}
+        <div class="text-muted" style="padding: var(--space-md); text-align: center;">
+            <i class="bi bi-check-circle" style="color: #28a745; font-size: 1.5rem; display: block; margin-bottom: 0.5rem;"></i>
+            אין שגיאות בקמפיינים — הכול תקין
+        </div>
+        {% endif %}
+    </div>
+</div>
+{% endif %}
+{% endblock %}
