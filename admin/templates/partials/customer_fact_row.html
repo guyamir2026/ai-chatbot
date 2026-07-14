@@ -1,0 +1,69 @@
+{# user_id מועבר מהקורא — נדרש ל-action URLs. #}
+{% set is_inactive = fact.status in ('superseded', 'resolved', 'rejected') %}
+<tr id="customer-fact-row-{{ fact.id }}"
+    {% if is_inactive %}style="opacity:0.55; background:var(--bg-muted, #f5f5f5);"{% endif %}>
+    <td data-label="תוכן">
+        <span id="fact-content-{{ fact.id }}">{{ fact.content }}</span>
+        {% if fact.requires_consent %}<span title="מידע רגיש" style="margin-right: 0.25rem;">🔒</span>{% endif %}
+    </td>
+    <td data-label="סטטוס">
+        {% if fact.status == 'active' %}
+        <span class="badge badge-success">{{ fact.status|translate_fact_status }}</span>
+        {% elif fact.status == 'pending_approval' %}
+        <span class="badge badge-warning">{{ fact.status|translate_fact_status }}</span>
+        {% elif fact.status == 'resolved' %}
+        <span class="badge badge-info">{{ fact.status|translate_fact_status }}</span>
+        {% elif fact.status == 'rejected' %}
+        <span class="badge badge-danger">{{ fact.status|translate_fact_status }}</span>
+        {% else %}
+        <span class="badge badge-muted">{{ fact.status|translate_fact_status }}</span>
+        {% endif %}
+    </td>
+    <td data-label="בטחון">
+        <span class="badge {{ fact.confidence|confidence_badge }}">
+            {{ '%.2f' % fact.confidence }}
+        </span>
+    </td>
+    <td data-label="נאמר" class="text-small text-muted">
+        {{ fact.created_at|il_datetime }}
+    </td>
+    <td data-label="אומת לאחרונה" class="text-small text-muted">
+        {{ fact.last_confirmed_at|il_datetime }}
+    </td>
+    <td data-label="פעולות">
+        {# כפתור ערוך מקבל id ייחודי כדי ש"ביטול" יוכל להחזיר את ה-display שלו.
+           Cancel bug: לפני התיקון, ביטול הסתיר את הטופס בלי להחזיר את כפתור
+           "ערוך" → המשתמש לא יכול היה לפתוח את הטופס שוב בלי refresh. #}
+        <div class="actions-cell">
+            <button id="fact-edit-btn-{{ fact.id }}"
+                    class="btn btn-secondary btn-sm"
+                    onclick="document.getElementById('fact-edit-form-{{ fact.id }}').style.display='block'; this.style.display='none';">
+                <i class="bi bi-pencil"></i> ערוך
+            </button>
+            <button class="btn btn-danger btn-sm"
+                    hx-post="/customer-memory/{{ user_id|urlencode }}/{{ fact.id }}/delete"
+                    hx-target="#customer-fact-row-{{ fact.id }}"
+                    hx-swap="outerHTML swap:0.3s"
+                    hx-confirm="למחוק את העובדה הזו לצמיתות?">
+                <i class="bi bi-trash"></i> מחק
+            </button>
+        </div>
+        <form id="fact-edit-form-{{ fact.id }}"
+              style="display:none; margin-top:0.5rem;"
+              hx-post="/customer-memory/{{ user_id|urlencode }}/{{ fact.id }}/edit"
+              hx-target="#customer-fact-row-{{ fact.id }}"
+              hx-swap="outerHTML">
+            <textarea name="content" class="form-control" rows="2"
+                      required>{{ fact.content }}</textarea>
+            <div style="margin-top:0.25rem;">
+                <button type="submit" class="btn btn-success btn-sm">
+                    <i class="bi bi-check-lg"></i> שמור
+                </button>
+                <button type="button" class="btn btn-secondary btn-sm"
+                        onclick="this.closest('form').style.display='none'; document.getElementById('fact-edit-btn-{{ fact.id }}').style.display='';">
+                    ביטול
+                </button>
+            </div>
+        </form>
+    </td>
+</tr>
