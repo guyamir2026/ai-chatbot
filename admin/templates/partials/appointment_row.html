@@ -1,0 +1,88 @@
+<tr id="appointment-row-{{ appt.id }}"{% if appt.owner_seen == 0 and appt.status != 'cancelled' %} class="appt-row-new"{% endif %}>
+    <td data-label="מזהה">
+        {% if appt.owner_seen == 0 and appt.status != 'cancelled' %}
+        <span class="appt-new-badge" title="חדש — טרם נצפה">חדש</span>
+        {% endif %}
+        {{ appt.id }}
+    </td>
+    <td data-label="לקוח">
+        <div>
+            <span class="fw-semibold" style="color: var(--text-primary);">{{ appt.username|mask_name }}</span>{% set _note_user_id = appt.user_id %}{% include "partials/user_note_icon.html" %}
+            {% if appt.telegram_username %}
+            <br>
+            <a class="text-small" href="{% if is_demo_session %}#{% else %}https://t.me/{{ appt.telegram_username }}{% endif %}" target="_blank" rel="noopener">
+                @{{ appt.telegram_username | mask_username }}
+            </a>
+            {% else %}
+            <br><span class="text-small text-muted">ללא שם משתמש בטלגרם</span>
+            {% endif %}
+        </div>
+    </td>
+    <td data-label="שירות">{{ appt.service }}</td>
+    <td data-label="תאריך" data-sort-value="{{ appt.preferred_date }}">{{ appt.preferred_date|il_date }}</td>
+    <td data-label="שעה" data-sort-value="{{ appt.preferred_time }}">{{ appt.preferred_time }}</td>
+    {# משך תור: מאושר → מציג את הערך שבעל העסק קבע באישור (או ברירת מחדל גלובלית
+       עבור נתונים ישנים). ממתין/מבוטל/עבר → מקף, כי אין משך מאושר. #}
+    {% if appt.status == 'confirmed' %}
+    <td data-label="משך תור" data-sort-value="{{ appt.effective_duration_minutes or 0 }}">{{ appt.effective_duration_minutes }} דק׳</td>
+    {% else %}
+    <td data-label="משך תור" data-sort-value="0"><span class="text-muted">—</span></td>
+    {% endif %}
+    {# תורים שהתאריך שלהם עבר מוצגים כ-"עבר" גם אם הסטטוס ב-DB נשאר confirmed #}
+    {% set display_status = 'passed' if (appt.preferred_date and appt.preferred_date < today_iso and appt.status != 'cancelled') else appt.status %}
+    <td data-label="סטטוס" data-sort-value="{{ display_status }}">
+        {% if display_status == 'pending' %}
+        <span class="badge badge-warning">ממתין</span>
+        {% elif display_status == 'confirmed' %}
+        <span class="badge badge-success">מאושר</span>
+        {% elif display_status == 'cancelled' %}
+        <span class="badge badge-danger">בוטל</span>
+        {% elif display_status == 'passed' %}
+        <span class="badge badge-muted">עבר</span>
+        {% endif %}
+    </td>
+    <td data-label="נוצר" class="text-small text-muted" title="{{ appt.created_at|il_datetime }}" data-sort-value="{{ appt.created_at }}">{{ appt.created_at|relative_time }}</td>
+    <td data-label="פעולות">
+        {% if display_status == 'passed' %}
+        {# תור שעבר — ללא פעולות #}
+        {% elif appt.status == 'pending' %}
+        <div class="actions-cell">
+            <input type="text"
+                   name="owner_message"
+                   id="owner-msg-{{ appt.id }}"
+                   class="form-control form-control-sm mb-1"
+                   placeholder="הודעה אישית (אופציונלי)"
+                   style="min-width: 160px;">
+            {# כפתורי אישור — אחד לכל אופציית משך תקינה. ברירת המחדל מובלטת. #}
+            <div class="d-flex gap-1 flex-wrap" style="margin-bottom: 4px;">
+                {% set default_dur = appt.default_duration_minutes or 60 %}
+                {% for dur in (appt.duration_options or [default_dur]) %}
+                <button class="btn btn-sm {% if dur == default_dur %}btn-success{% else %}btn-outline-success{% endif %}"
+                        hx-post="/appointments/{{ appt.id }}/update"
+                        hx-vals='{"status": "confirmed", "duration_minutes": "{{ dur }}"}'
+                        hx-include="#owner-msg-{{ appt.id }}"
+                        hx-target="#appointment-row-{{ appt.id }}"
+                        hx-swap="outerHTML swap:0.2s"
+                        title="אשר את התור עם משך {{ dur }} דקות">
+                    <i class="bi bi-check-lg"></i> {{ dur }}׳
+                </button>
+                {% endfor %}
+            </div>
+            <div class="d-flex gap-1">
+                <button class="btn btn-outline-danger btn-sm"
+                        hx-post="/appointments/{{ appt.id }}/update"
+                        hx-vals='{"status": "cancelled"}'
+                        hx-include="#owner-msg-{{ appt.id }}"
+                        hx-target="#appointment-row-{{ appt.id }}"
+                        hx-swap="outerHTML swap:0.2s">
+                    <i class="bi bi-x-lg"></i> בטל
+                </button>
+            </div>
+        </div>
+        {% elif appt.status == 'confirmed' %}
+        <button class="btn btn-outline-primary btn-sm" onclick="showIcsPreview({{ appt.id }})" title="תצוגה מקדימה של קובץ יומן">
+            <i class="bi bi-calendar-event"></i> .ics
+        </button>
+        {% endif %}
+    </td>
+</tr>
