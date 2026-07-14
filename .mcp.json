@@ -1,0 +1,15 @@
+{
+  "mcpServers": {
+    "agentskills": {
+      "type": "http",
+      "url": "https://mcp.agentskills.co.il/mcp",
+      "headers": {
+        "Authorization": "Bearer ${AGENTSKILLS_TOKEN}"
+      }
+    },
+    "telegram": {
+      "type": "http",
+      "url": "https://telegram-mcp-xaa5.onrender.com/mcp"
+    }
+  }
+}
