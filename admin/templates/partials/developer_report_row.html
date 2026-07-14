@@ -1,0 +1,36 @@
+<tr id="report-row-{{ r.id }}">
+    <td data-label="#">{{ r.id }}</td>
+    <td data-label="תיאור" style="max-width: 350px; word-wrap: break-word;">{{ r.description }}</td>
+    <td data-label="תמונות">
+        {% if r.screenshot_count %}
+        <span class="badge badge-info">{{ r.screenshot_count }} <i class="bi bi-image"></i></span>
+        {% else %}
+        <span class="text-muted">—</span>
+        {% endif %}
+    </td>
+    <td data-label="סטטוס">
+        {% if r.status == 'open' %}
+        <span class="badge badge-warning">פתוח</span>
+        {% else %}
+        <span class="badge badge-success">טופל</span>
+        {% endif %}
+    </td>
+    <td data-label="תאריך" class="text-small text-muted" title="{{ r.created_at|il_datetime }}">{{ r.created_at|relative_time }}</td>
+    <td data-label="פעולות">
+        {% if r.status == 'open' %}
+        <button class="btn btn-secondary btn-sm"
+                hx-post="/developer-report/{{ r.id }}/resolve"
+                hx-target="#reports-table-body"
+                hx-swap="innerHTML swap:0.2s">
+            <i class="bi bi-check-lg"></i> סמן כטופל
+        </button>
+        {% else %}
+        <button class="btn btn-secondary btn-sm"
+                hx-post="/developer-report/{{ r.id }}/reopen"
+                hx-target="#reports-table-body"
+                hx-swap="innerHTML swap:0.2s">
+            <i class="bi bi-arrow-counterclockwise"></i> פתח מחדש
+        </button>
+        {% endif %}
+    </td>
+</tr>
