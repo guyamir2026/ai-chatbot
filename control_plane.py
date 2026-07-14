@@ -276,6 +276,45 @@ def list_tenants(status: Optional[str] = None) -> list[dict]:
         return [dict(r) for r in rows]
 
 
+def migrate_all_tenants() -> dict:
+    """עדכון סכימה (init_db) ל-DB של כל tenant פעיל — בכל עליית תהליך.
+
+    שורש הבעיה שזה פותר: ה-data-plane DB של כל tenant עובר init_db
+    (executescript + migrations) רק *פעם אחת*, ב-create_tenant. עמודה
+    חדשה שנוספת ב-migration אחרי-כן (ADD COLUMN) חסרה מ-tenant DBs
+    קיימים, וכל כתיבה שמפנה אליה זורקת "no such column". init_db בעליית
+    התהליך (main.py) רץ רק על ה-tenant של ברירת-המחדל, ולכן ה-DBים של
+    שאר ה-tenants נשארים מאחור בכל שינוי סכימה.
+
+    הפונקציה מריצה init_db על כל tenant *פעיל* (idempotent — על DB
+    מעודכן זה no-op; על DB ישן זה משלים את העמודות החסרות). tenants
+    מושעים/בהגירה מדולגים: גישתם ל-DB חסומה ממילא (_check_tenant_allowed)
+    ואינם מוגשים לבקשות — הם יתעדכנו בעליית התהליך הבאה, אחרי שיוחזרו
+    ל-active.
+
+    עמידה לכשל פר-tenant (CLAUDE.md — לולאות I/O ארוכות): כשל ב-DB אחד
+    לא עוצר את השאר ולא מפיל את עליית התהליך.
+
+    מחזיר סיכום {"migrated": N, "errors": N} ללוג.
+    """
+    from ai_chatbot import database as db
+
+    result = {"migrated": 0, "errors": 0}
+    for t in list_tenants(status="active"):
+        tenant_id = t["tenant_id"]
+        try:
+            with tenant_context(tenant_id):
+                db.init_db()
+            result["migrated"] += 1
+        except Exception:
+            logger.error(
+                "migrate_all_tenants: כשל בעדכון סכימה ל-tenant=%s", tenant_id,
+                exc_info=True,
+            )
+            result["errors"] += 1
+    return result
+
+
 def set_tenant_status(tenant_id: str, status: str) -> None:
     """עדכון סטטוס (active/suspended/migrating) + אינבלידציה של ה-cache."""
     if status not in TENANT_STATUSES:

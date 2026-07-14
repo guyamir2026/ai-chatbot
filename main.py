@@ -108,6 +108,18 @@ def main():
         logger.info("Initializing database...")
         db.init_db()
 
+        # עדכון סכימה לכל ה-tenants הפעילים (data-plane), לא רק ברירת-המחדל.
+        # שורש: ה-DB של כל tenant עובר init_db רק פעם אחת (ב-create_tenant),
+        # ולכן עמודה חדשה שנוספת ב-migration אחר-כך חסרה מ-tenant DBs קיימים
+        # וכתיבה שמפנה אליה זורקת "no such column". idempotent + עמיד לכשל
+        # פר-tenant. עטוף כך שכשל לא מפיל את העלייה.
+        try:
+            from control_plane import migrate_all_tenants
+            _tenant_mig = migrate_all_tenants()
+            logger.info("Tenant schema migration: %s", _tenant_mig)
+        except Exception:
+            logger.exception("Tenant schema migration failed (continuing).")
+
         # תמיד לזרוע שעות פעילות וחגים — הפונקציה אידמפוטנטית ולא דורסת נתונים קיימים
         try:
             from seed_data import _seed_business_hours

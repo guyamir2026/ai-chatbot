@@ -40,6 +40,7 @@
 - `init_db()` רץ `executescript` תחילה, ורק אחר-כך קורא ל-`run_migrations()`. זה אומר ש-DB **קיים** (פרודקשן) לא יקבל עמודות חדשות מתוך ה-`CREATE TABLE IF NOT EXISTS` ב-init_db — רק migration רץ עם `_ensure_column` יוסיף אותן.
 - **כשמוסיפים עמודה חדשה לטבלה קיימת + אינדקס שתלוי בה**: ה-`ADD COLUMN` וה-`CREATE INDEX` חייבים להיות **שניהם ב-migrations.py בלבד**. אם תוסיף את ה-`CREATE INDEX` ב-init_db's executescript, ב-DB קיים הוא יקרוס כי העמודה עוד לא קיימת (migration רץ אחרי). ב-CI/dev (DB חדש) זה יעבוד — והבאג ייתפס רק ב-deploy לפרודקשן.
 - ב-`init_db`'s `CREATE TABLE` אפשר עדיין להגדיר את העמודה לטבלאות **חדשות** (DB ריק); הטבלה לא תיווצר ב-DB קיים אז זה לא רלוונטי שם. רק אינדקסים/constraints שתלויים בעמודה נכנסים ל-migrations.
+- **Multi-tenant — המיגרציות רצות על כל ה-tenants בעליית התהליך.** `main.py` קורא ל-`control_plane.migrate_all_tenants()` אחרי ה-`init_db` של ברירת-המחדל; הוא מריץ `init_db` (executescript + migrations) על ה-DB של **כל tenant פעיל**. בלי זה, ה-data-plane DB של כל tenant היה עובר מיגרציה רק פעם אחת (ב-`create_tenant`), ועמודה חדשה שנוספת אחר-כך הייתה חסרה מ-tenant DBs קיימים → `no such column` בכל כתיבה שמפנה אליה. **מסקנה:** עמודה/סכימה חדשה זמינה ל-tenants קיימים רק אחרי deploy/restart (שמריץ את הלולאה). אל תניח ש-tenant DB נמצא בגרסת סכימה מסוימת בלי שהמיגרציה רצה עליו.
 
 ### LLM Prompts — לקרוא כשלם
 - כשמזריקים תוכן חדש ל-prompt — לקרוא את כל ההודעות יחד ולוודא שאין הוראות סותרות (למשל "השתמש **רק** במידע X" ואז מידע Y בהודעה נפרדת).
