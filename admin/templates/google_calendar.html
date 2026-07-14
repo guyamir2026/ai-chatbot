@@ -1,0 +1,129 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="page-header animate-fade-in">
+    <h1><i class="bi bi-calendar-check"></i> Google Calendar</h1>
+</div>
+
+{% if not is_configured %}
+<!-- Google Calendar לא מוגדר -->
+<div class="card animate-slide-up stagger-1">
+    <div class="card-header">
+        <span><i class="bi bi-exclamation-triangle"></i> לא מוגדר</span>
+    </div>
+    <div class="card-body">
+        <p>כדי לחבר את Google Calendar, יש להגדיר את משתני הסביבה הבאים בקובץ <code>.env</code>:</p>
+        <ul style="margin: var(--space-md) 0;">
+            <li><code>GOOGLE_CLIENT_ID</code></li>
+            <li><code>GOOGLE_CLIENT_SECRET</code></li>
+            <li><code>GOOGLE_REDIRECT_URI</code></li>
+        </ul>
+        <p class="text-small text-muted">
+            ניתן ליצור credentials ב-<a href="https://console.cloud.google.com/apis/credentials" target="_blank" rel="noopener">Google Cloud Console</a>.
+            יש להפעיל את Google Calendar API ולהגדיר OAuth consent screen.
+        </p>
+    </div>
+</div>
+
+{% elif credentials %}
+<!-- מחובר -->
+<div class="card animate-slide-up stagger-1">
+    <div class="card-header">
+        {% if auth_invalid %}
+        <span><i class="bi bi-exclamation-triangle-fill" style="color: var(--danger, #ef4444);"></i> חיבור לא תקף</span>
+        <span class="badge badge-danger">נדרש חיבור מחדש</span>
+        {% else %}
+        <span><i class="bi bi-check-circle"></i> מחובר</span>
+        <span class="badge badge-success">פעיל</span>
+        {% endif %}
+    </div>
+    <div class="card-body">
+        {% if auth_invalid %}
+        <div class="alert alert-danger" style="margin-bottom: var(--space-lg);">
+            <strong><i class="bi bi-exclamation-triangle"></i> ה-token פג תוקף או בוטל ע"י Google.</strong>
+            <p style="margin: var(--space-xs) 0 0;">
+                תורים חדשים שנקבעים דרך הבוט <b>לא מסונכרנים ליומן</b> עד שתחברו מחדש.
+                בנוסף, בדיקת זמינות (slots פנויים) מושבתת — הבוט לא יוכל להתייחס לאירועים
+                ביומן בזמן הזמנה. סיבות נפוצות: סיסמת Google שונתה, ההרשאה בוטלה ידנית
+                ב-<a href="https://myaccount.google.com/permissions" target="_blank" rel="noopener">myaccount.google.com/permissions</a>,
+                או טוקן שלא נוגעו אליו 6+ חודשים.
+            </p>
+        </div>
+        {% endif %}
+
+        <div style="display: grid; gap: var(--space-sm); margin-bottom: var(--space-lg);">
+            <div>
+                <span class="text-muted">חשבון Google:</span>
+                <strong>{{ credentials.google_account_email }}</strong>
+            </div>
+            <div>
+                <span class="text-muted">יומן:</span>
+                <strong>{{ credentials.calendar_id }}</strong>
+            </div>
+            <div>
+                <span class="text-muted">אזור זמן:</span>
+                <strong>{{ credentials.timezone }}</strong>
+            </div>
+        </div>
+
+        {% if not auth_invalid %}
+        <div class="card" style="background: var(--bg-tertiary); border: 1px solid var(--border-color);">
+            <div class="card-body" style="padding: var(--space-md);">
+                <h4 style="margin-bottom: var(--space-sm);"><i class="bi bi-info-circle"></i> מה עושה הסנכרון?</h4>
+                <ul style="margin: 0; padding-right: 1.2rem;">
+                    <li>כשתור <b>מאושר</b> — נוצר אירוע אוטומטית ביומן Google</li>
+                    <li>כשתור <b>מבוטל</b> — האירוע נמחק מהיומן</li>
+                    <li>בזמן <b>הזמנת תור</b> — הבוט בודק זמינות ביומן ומציע רק שעות פנויות</li>
+                </ul>
+            </div>
+        </div>
+        {% endif %}
+
+        <div style="display: flex; gap: var(--space-md); margin-top: var(--space-lg); flex-wrap: wrap;">
+            {% if auth_invalid %}
+            <a href="{{ url_for('google_connect') }}" class="btn btn-primary">
+                <i class="bi bi-arrow-clockwise"></i> חבר מחדש
+            </a>
+            {% endif %}
+            <form method="POST" action="{{ url_for('google_disconnect') }}" style="margin: 0;">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <button type="submit" class="btn btn-danger"
+                        onclick="return confirm('בטוח שברצונך לנתק את Google Calendar?')">
+                    <i class="bi bi-x-circle"></i> נתק Google Calendar
+                </button>
+            </form>
+        </div>
+    </div>
+</div>
+
+{% else %}
+<!-- לא מחובר -->
+<div class="card animate-slide-up stagger-1">
+    <div class="card-header">
+        <span><i class="bi bi-calendar-x"></i> לא מחובר</span>
+        <span class="badge badge-muted">כבוי</span>
+    </div>
+    <div class="card-body">
+        <p style="margin-bottom: var(--space-md);">
+            חבר את Google Calendar כדי לסנכרן תורים אוטומטית עם היומן שלך.
+        </p>
+
+        <div class="card" style="background: var(--bg-tertiary); border: 1px solid var(--border-color); margin-bottom: var(--space-lg);">
+            <div class="card-body" style="padding: var(--space-md);">
+                <h4 style="margin-bottom: var(--space-sm);"><i class="bi bi-stars"></i> יתרונות הסנכרון</h4>
+                <ul style="margin: 0; padding-right: 1.2rem;">
+                    <li><b>אירועים אוטומטיים</b> — כשתור מאושר, נוצר אירוע ביומן Google</li>
+                    <li><b>ביטול אוטומטי</b> — כשתור מבוטל, האירוע נמחק מהיומן</li>
+                    <li><b>בדיקת זמינות</b> — הבוט מציע ללקוחות רק שעות שפנויות ביומן</li>
+                </ul>
+            </div>
+        </div>
+
+        <a href="{{ url_for('google_connect') }}" class="btn btn-primary">
+            <i class="bi bi-google"></i> חבר Google Calendar
+        </a>
+    </div>
+</div>
+{% endif %}
+
+{% endblock %}
