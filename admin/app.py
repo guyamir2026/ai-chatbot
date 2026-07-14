@@ -1678,6 +1678,89 @@ self.addEventListener('notificationclick', (event) => {
         )
         return redirect(url_for("platform_home"))
 
+    @app.route("/platform/tenants/<tenant_id>/delete", methods=["POST"])
+    @platform_admin_required
+    def platform_tenant_delete(tenant_id):
+        """מחיקה מלאה ובלתי-הפיכה של לקוח (tenant) מהפלטפורמה.
+
+        אישור כפול: המפעיל מקליד את מזהה הלקוח, וה-form שולח אותו
+        ב-confirm_slug. השרת בודק שוב את ההתאמה — לא סומכים על הדפדפן.
+        """
+        import control_plane as _cp
+        from tenancy import validate_tenant_id, InvalidTenantSlug
+
+        try:
+            validate_tenant_id(tenant_id)
+        except InvalidTenantSlug:
+            flash("מזהה tenant לא תקין.", "danger")
+            return redirect(url_for("platform_home"))
+
+        # אישור — המזהה שהוקלד חייב להתאים בדיוק (הגנה מלחיצה בטעות)
+        if request.form.get("confirm_slug", "").strip() != tenant_id:
+            flash("אישור המחיקה לא תאם את מזהה הלקוח — המחיקה בוטלה.", "warning")
+            return redirect(url_for("platform_home"))
+
+        row = _cp.get_tenant(tenant_id)
+        if row is None:
+            flash("ה-tenant אינו רשום.", "warning")
+            return redirect(url_for("platform_home"))
+        display_name = row.get("display_name", tenant_id)
+
+        # 1. ביטול ה-webhook מול טלגרם *לפני* המחיקה (בעוד הטוקן קיים) —
+        #    אחרי מחיקת הסוד אין דרך לבטל (הטוקן הוא ההרשאה). best-effort,
+        #    כמו במעבר ערוץ. רץ בתהליך השרת, ולכן גם reset של ה-cache בזיכרון.
+        try:
+            import asyncio
+            from bot_registry import remove_telegram_webhook, reset_tenant
+
+            if _cp.get_tenant_secret(tenant_id, "telegram_bot_token"):
+                asyncio.run(remove_telegram_webhook(tenant_id))
+            reset_tenant(tenant_id)  # הסרת ה-Application המטומן של ה-tenant
+        except Exception:
+            logger.error(
+                "platform_tenant_delete: ביטול webhook/reset נכשל (tenant=%s)",
+                tenant_id, exc_info=True,
+            )
+
+        # 2. איפוס ה-vector store של ה-tenant בזיכרון (אחרת נשאר cache יתום).
+        #    reset_vector_store מאפס את ה-tenant הנוכחי — לכן בתוך ה-context.
+        try:
+            from tenancy import tenant_context
+            from rag.vector_store import reset_vector_store
+
+            with tenant_context(tenant_id):
+                reset_vector_store()
+        except Exception:
+            logger.error(
+                "platform_tenant_delete: reset vector store נכשל (tenant=%s)",
+                tenant_id, exc_info=True,
+            )
+
+        # 3. המחיקה עצמה — control plane (cascade) + קבצי ה-data plane.
+        try:
+            result = _cp.delete_tenant(tenant_id)
+        except Exception:
+            logger.error("platform_tenant_delete: delete_tenant נכשל", exc_info=True)
+            flash("מחיקת הלקוח נכשלה — נסו שוב.", "danger")
+            return redirect(url_for("platform_home"))
+
+        # אם מחקנו את ה-tenant שאנו פועלים-כמותו — יוצאים מהמצב
+        if session.get("acting_tenant") == tenant_id:
+            session.pop("acting_tenant", None)
+
+        _audit_log(
+            "platform_tenant_delete",
+            f"tenant={tenant_id} backup_ok={result.get('backup_ok')} "
+            f"files_removed={result.get('files_removed')}",
+        )
+        msg = f"הלקוח '{display_name}' ({tenant_id}) נמחק לצמיתות."
+        if result.get("backup_ok"):
+            msg += f" גיבוי אחרון נשמר ({result.get('backup_stamp')})."
+        elif result.get("backup_ok") is False:
+            msg += " אזהרה: הגיבוי האחרון נכשל (ראו לוג)."
+        flash(msg, "success")
+        return redirect(url_for("platform_home"))
+
     @app.route("/platform/tenants/new", methods=["GET", "POST"])
     @platform_admin_required
     def platform_new_tenant():

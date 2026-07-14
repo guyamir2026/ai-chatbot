@@ -169,3 +169,38 @@ def tenant_faiss_dir(tenant_id: Optional[str] = None) -> Path:
         return Path(_config.FAISS_INDEX_PATH)
     _check_tenant_allowed(tenant)
     return (_tenants_root() / tenant / "faiss_index").resolve()
+
+
+def tenant_data_dir(tenant_id: str) -> Path:
+    """תיקיית ה-data plane של ה-tenant (מכילה chatbot.db + faiss_index/).
+
+    בניגוד ל-tenant_db_path / tenant_faiss_dir — **לא** מפעילה בדיקת
+    סטטוס (_check_tenant_allowed), כדי שאפשר יהיה למחוק את קבצי ה-tenant
+    גם כשהוא מושעה/בתהליך הסרה (אז פתירת הנתיב הרגילה הייתה נחסמת).
+    לא חלה על ה-tenant ה-legacy ('default') — קבציו יושבים בנתיבי config
+    ולא תחת tenants/.
+    """
+    tenant = validate_tenant_id(tenant_id)
+    if tenant == DEFAULT_TENANT:
+        raise InvalidTenantSlug("ל-tenant ה-legacy ('default') אין תיקיית data plane ייעודית")
+    path = (_tenants_root() / tenant).resolve()
+    # belt-and-braces מעבר לולידציית ה-slug: הנתיב חייב להישאר תחת השורש
+    if not path.is_relative_to(_tenants_root().resolve()):
+        raise InvalidTenantSlug(f"tenant path escapes tenants root: {tenant!r}")
+    return path
+
+
+def remove_tenant_files(tenant_id: str) -> bool:
+    """מחיקת כל קבצי ה-data plane של tenant (chatbot.db + WAL/SHM + FAISS).
+
+    נקרא בתהליך מחיקת tenant — אחרי שהרשומה כבר הוסרה מה-control plane.
+    מחזיר True אם התיקייה נמחקה או שלא הייתה קיימת מלכתחילה. חריגה
+    (למשל הרשאות דיסק) מופצת לקורא, שירשום אותה ל-log ויסמן כישלון חלקי.
+    """
+    import shutil
+
+    target = tenant_data_dir(tenant_id)
+    if not target.exists():
+        return True
+    shutil.rmtree(target)
+    return True

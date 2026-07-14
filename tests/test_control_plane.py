@@ -210,6 +210,77 @@ class TestRoutes:
         assert all(len(k) >= 24 for k in keys)
 
 
+class TestTenantDeletion:
+    """מחיקה מלאה של tenant — cascade ב-control plane + קבצי data plane."""
+
+    def _seed(self, name="salon-a"):
+        cp.create_tenant(name, "עסק")
+        cp.set_route("widget_key", f"wk-{name}", name)
+        cp.set_tenant_secret(name, "telegram_bot_token", "tok")
+        cp.create_admin_user(f"owner-{name}@x.com", "password12", "owner", name)
+
+    def test_delete_removes_row_cascade_and_files(self, platform_env):
+        self._seed("salon-a")
+        cp.create_tenant("salon-b", "עסק ב")  # שכן — לא אמור להיפגע
+        cp.create_admin_user("padmin@x.com", "password12", "platform_admin")
+
+        db_dir = platform_env / "tenants" / "salon-a"
+        assert (db_dir / "chatbot.db").exists()
+
+        result = cp.delete_tenant("salon-a", backup=False)
+
+        # השורה נעלמה; השכן נשאר
+        assert cp.get_tenant("salon-a") is None
+        assert cp.get_tenant("salon-b") is not None
+        # cascade: routes / secrets / owner admin_user נמחקו
+        assert cp.list_routes("salon-a") == []
+        assert cp.list_tenant_secret_names("salon-a") == []
+        assert cp.list_admin_users("salon-a") == []
+        # ה-platform_admin (tenant_id=NULL) שרד
+        assert any(u["email"] == "padmin@x.com" for u in cp.list_admin_users())
+        # קבצי ה-data plane נמחקו מהדיסק
+        assert not db_dir.exists()
+        # סיכום
+        assert result["files_removed"] is True
+        assert result["cascade"] == {"routes": 1, "secrets": 1, "admin_users": 1}
+        assert result["backup_ok"] is None  # backup=False
+
+    def test_delete_suspended_tenant(self, platform_env):
+        # מחיקה עובדת גם על tenant מושעה (הנתיב עוקף את בדיקת הסטטוס)
+        cp.create_tenant("salon-a", "עסק")
+        cp.set_tenant_status("salon-a", "suspended")
+        result = cp.delete_tenant("salon-a", backup=False)
+        assert cp.get_tenant("salon-a") is None
+        assert result["files_removed"] is True
+        assert not (platform_env / "tenants" / "salon-a").exists()
+
+    def test_delete_default_rejected(self, platform_env):
+        with pytest.raises(InvalidTenantSlug):
+            cp.delete_tenant("default")
+
+    def test_delete_unknown_rejected(self, platform_env):
+        cp.init_platform_db()
+        with pytest.raises(cp.UnknownTenantError):
+            cp.delete_tenant("ghost")
+
+    def test_delete_invalidates_status_cache(self, platform_env):
+        cp.create_tenant("salon-a", "עסק")
+        assert cp.get_tenant_status_cached("salon-a") == "active"  # טוען ל-cache
+        cp.delete_tenant("salon-a", backup=False)
+        # אחרי מחיקה — None (ולא 'active' תקוע מה-cache)
+        assert cp.get_tenant_status_cached("salon-a") is None
+
+    def test_delete_runs_final_backup(self, platform_env):
+        cp.create_tenant("salon-a", "עסק")
+        with patch("backup_service.backup_tenant", return_value=True) as mock_bk:
+            result = cp.delete_tenant("salon-a")  # backup=True (ברירת מחדל)
+        assert result["backup_ok"] is True
+        assert result["backup_stamp"].startswith("deleted-")
+        args, _ = mock_bk.call_args
+        assert args[0] == "salon-a"
+        assert args[1] == result["backup_stamp"]
+
+
 class TestCli:
     def test_cli_create_and_list(self, platform_env, capsys):
         import platform_cli
@@ -239,3 +310,23 @@ class TestCli:
 
         platform_cli.main(["create-tenant", "salon-a", "א"])
         assert platform_cli.main(["create-tenant", "salon-a", "שוב"]) == 1
+
+    def test_cli_delete_tenant_with_yes(self, platform_env):
+        import platform_cli
+
+        platform_cli.main(["create-tenant", "salon-a", "מספרה"])
+        assert cp.get_tenant("salon-a") is not None
+        # --yes מדלג על האישור האינטראקטיבי (לסקריפטים)
+        assert platform_cli.main(["delete-tenant", "salon-a", "--yes"]) == 0
+        assert cp.get_tenant("salon-a") is None
+        assert not (platform_env / "tenants" / "salon-a").exists()
+
+    def test_cli_delete_tenant_wrong_confirm_aborts(self, platform_env, monkeypatch):
+        import io
+        import platform_cli
+
+        platform_cli.main(["create-tenant", "salon-a", "מספרה"])
+        # הקלדת מזהה שגוי (בלי --yes) → ביטול, קוד יציאה 1, ה-tenant נשאר
+        monkeypatch.setattr("sys.stdin", io.StringIO("wrong\n"))
+        assert platform_cli.main(["delete-tenant", "salon-a"]) == 1
+        assert cp.get_tenant("salon-a") is not None

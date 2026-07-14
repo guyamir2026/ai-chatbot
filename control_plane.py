@@ -31,6 +31,7 @@ from tenancy import (
     DEFAULT_TENANT,
     InvalidTenantSlug,
     TenancyError,
+    remove_tenant_files,
     tenant_context,
     tenant_db_path,
     validate_tenant_id,
@@ -303,6 +304,107 @@ def list_schedulable_tenant_ids() -> list[str]:
     if not registered:
         return [DEFAULT_TENANT]
     return [t["tenant_id"] for t in registered if t["status"] == "active"]
+
+
+def delete_tenant(tenant_id: str, *, backup: bool = True) -> dict:
+    """מחיקה מלאה ובלתי-הפיכה של tenant מהפלטפורמה.
+
+    מסיר את כל מה שמרכיב לקוח: שורת ה-tenant ב-control plane (ואיתה, דרך
+    ON DELETE CASCADE, ה-routes, ה-secrets ומשתמשי ה-owner), וכן קבצי
+    ה-data plane על הדיסק (chatbot.db + WAL/SHM + אינדקס FAISS).
+
+    שכבתיות (כמו delete_tenant_channel_data): ביטול ה-webhook מול טלגרם
+    (רשת, async) ו-reset של caches בזיכרון-התהליך (bot_registry / RAG) הם
+    באחריות הקורא שרץ בתהליך השרת — יש לבצע את ביטול ה-webhook *לפני*
+    הקריאה, בעוד הטוקן קיים. כאן נוגעים בנתונים בלבד, כדי ש-control_plane
+    לא ייתלה ב-bot_registry.
+
+    סדר קריטי:
+      1. גיבוי — בעוד הסטטוס 'active' (backup_tenant פותר נתיבים דרך
+         tenant_db_path שחוסם tenant מושעה, ולכן חייב לרוץ לפני ההשעיה).
+      2. השעיה — חוסמת גישה חדשה לנתונים בכל המצבים בזמן הפירוק.
+      3. מחיקת השורה — מפעילה את ה-cascade.
+      4. אינבלידציית ה-status cache — שלא ייקרא כ'פעיל' עד ל-TTL.
+      5. מחיקת הקבצים מהדיסק (אחרת הם יתומים — עיקר נפח הדיסק).
+
+    ה-slug 'default' (ה-tenant ה-legacy) אינו נמחק דרך כאן.
+
+    מחזיר dict סיכום: {tenant_id, backup_ok (bool/None), backup_stamp,
+    cascade: {routes, secrets, admin_users}, files_removed (bool)}.
+    """
+    validate_tenant_id(tenant_id)
+    if tenant_id == DEFAULT_TENANT:
+        raise InvalidTenantSlug(
+            f"'{DEFAULT_TENANT}' הוא ה-tenant ה-legacy ואינו נמחק דרך ה-control plane"
+        )
+    if get_tenant(tenant_id) is None:
+        raise UnknownTenantError(f"tenant לא רשום: {tenant_id}")
+
+    summary: dict = {
+        "tenant_id": tenant_id,
+        "backup_ok": None,
+        "backup_stamp": None,
+        "cascade": {},
+        "files_removed": False,
+    }
+
+    # 1. גיבוי אחרון — בעוד הסטטוס 'active' (ראה docstring). best-effort:
+    #    כשל נרשם ומדווח ב-summary אבל אינו עוצר את המחיקה. הסטטוס מוצג
+    #    לקורא כדי שידע אם נותרה רשת ביטחון לשחזור.
+    if backup:
+        try:
+            from datetime import datetime, timezone
+            import backup_service
+
+            stamp = "deleted-" + datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
+            summary["backup_ok"] = bool(backup_service.backup_tenant(tenant_id, stamp))
+            summary["backup_stamp"] = stamp
+        except Exception:
+            logger.error("delete_tenant(%s): גיבוי אחרון נכשל", tenant_id, exc_info=True)
+            summary["backup_ok"] = False
+
+    # 2. ספירת מה שיימחק ב-cascade (לדיווח/אודיט) — לפני המחיקה בפועל
+    with get_platform_connection() as conn:
+        for label, table in (
+            ("routes", "tenant_routes"),
+            ("secrets", "tenant_secrets"),
+            ("admin_users", "admin_users"),
+        ):
+            row = conn.execute(
+                f"SELECT COUNT(*) AS c FROM {table} WHERE tenant_id = ?", (tenant_id,)
+            ).fetchone()
+            summary["cascade"][label] = row["c"]
+
+    # 3. השעיה — חוסמת גישה חדשה לנתונים בזמן הפירוק (בכל המצבים, לא רק
+    #    STRICT), ומוציאה מיידית מלולאות ה-schedulers.
+    set_tenant_status(tenant_id, "suspended")
+
+    # 4. מחיקת שורת ה-tenant — מפעילה ON DELETE CASCADE על
+    #    tenant_routes / tenant_secrets / admin_users(owner). ה-platform_admin
+    #    (tenant_id = NULL) אינו מושפע (ה-CHECK בסכימה מבטיח זאת).
+    with get_platform_connection() as conn:
+        conn.execute("DELETE FROM tenants WHERE tenant_id = ?", (tenant_id,))
+
+    # 5. אינבלידציית ה-status cache — שלא ייקרא כ'פעיל' עד תום ה-TTL.
+    invalidate_status_cache(tenant_id)
+
+    # 6. מחיקת קבצי ה-data plane. הערה: אחרי מחיקת השורה הסטטוס הוא None,
+    #    ובמצב לא-STRICT גישה מקבילית עלולה עדיין ליצור מחדש קובץ ריק —
+    #    מוחקים מיד אחרי האינבלידציה כדי לצמצם את החלון (פעולה ידנית
+    #    נדירה של מנהל פלטפורמה על tenant מפורק, סיכון מרוץ נמוך).
+    try:
+        summary["files_removed"] = bool(remove_tenant_files(tenant_id))
+    except Exception:
+        logger.error(
+            "delete_tenant(%s): מחיקת קבצי ה-data plane נכשלה", tenant_id, exc_info=True
+        )
+        summary["files_removed"] = False
+
+    logger.info(
+        "tenant deleted: %s (backup_ok=%s cascade=%s files_removed=%s)",
+        tenant_id, summary["backup_ok"], summary["cascade"], summary["files_removed"],
+    )
+    return summary
 
 
 # ─── cache סטטוסים (נצרך ע"י tenancy בכל פתיחת חיבור) ────────────────────
