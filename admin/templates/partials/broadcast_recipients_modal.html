@@ -1,0 +1,58 @@
+{% from "_macros/channel_badge.html" import channel_badge %}
+<!-- partial: תוכן מודאל רשימת לקוחות שנכללו בקהל מותאם אישית -->
+<div class="appt-modal-header">
+    <h3>
+        <i class="bi bi-people"></i>
+        קהל מותאם אישית — שידור #{{ broadcast.id }}
+    </h3>
+    <button class="appt-modal-close" type="button"
+            onclick="closeBroadcastRecipientsModal()">&times;</button>
+</div>
+<div class="appt-modal-body">
+    {% if recipients %}
+    <div class="text-small text-muted" style="margin-bottom: 0.75rem;">
+        <i class="bi bi-info-circle"></i>
+        סך הכל {{ recipients|length }} לקוחות נכללו בקהל זה.
+    </div>
+    <div class="table-responsive" style="max-height: 60vh; overflow-y: auto;">
+        <table class="table">
+            <thead style="position: sticky; top: 0; z-index: 1;">
+                <tr>
+                    <th style="width: 40px;">#</th>
+                    <th>שם / מזהה</th>
+                    <th>ערוץ</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for r in recipients %}
+                <tr>
+                    <td class="text-muted text-small">{{ loop.index }}</td>
+                    <td>
+                        {% if r.username %}
+                            {{ r.username | mask_name }}
+                        {% else %}
+                            <span class="text-muted">{{ r.user_id | mask_name }}</span>
+                        {% endif %}
+                    </td>
+                    <td>
+                        {% if r.channel %}
+                        {{ channel_badge(r.channel) }}
+                        {% else %}
+                        <span class="text-muted text-small">—</span>
+                        {% endif %}
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% else %}
+    <div class="empty-state" style="padding: 1.5rem;">
+        <i class="bi bi-people"></i>
+        <p>לא נשמרה רשימת נמענים עבור שידור זה.</p>
+        <p class="text-small text-muted">
+            ייתכן שהשידור נשלח לפני הוספת תכונת רשימת הנמענים.
+        </p>
+    </div>
+    {% endif %}
+</div>
