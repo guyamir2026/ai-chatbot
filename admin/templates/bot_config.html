@@ -1,0 +1,381 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="page-header animate-fade-in">
+    <h1><i class="bi bi-gear"></i> הגדרות תשתית</h1>
+</div>
+
+{# Phase 4 — נעילת ערוץ לפי החבילה: רק הערוץ של החבילה ניתן לעריכה.
+   plan_definition.channel = 'telegram' → ווטסאפ נעול וההפך. #}
+{% set channel_active = plan_definition.channel %}
+{% set telegram_disabled = (channel_active != 'telegram') %}
+{% set whatsapp_disabled = (channel_active != 'whatsapp') %}
+
+<!-- הגדרות טלגרם -->
+<div class="card animate-slide-up stagger-1{% if telegram_disabled %} channel-card-disabled{% endif %}">
+    <div class="card-header">
+        <span><i class="bi bi-telegram"></i> חיבור טלגרם</span>
+        {% if telegram_disabled %}
+        <span style="font-size: 0.85rem; opacity: 0.75;">
+            <i class="bi bi-lock-fill"></i> לא בשימוש בחבילה הנוכחית
+        </span>
+        {% endif %}
+    </div>
+    <div class="card-body">
+        {% if telegram_disabled %}
+        <div class="alert alert-info" style="margin-bottom: var(--space-md);">
+            <i class="bi bi-info-circle"></i>
+            החבילה הנוכחית שלך פועלת על <strong>WhatsApp</strong>.
+            הגדרות טלגרם נעולות. לשינוי, צור קשר עם ספק השירות.
+        </div>
+        {% endif %}
+        <form method="POST" action="{{ url_for('bot_config') }}" autocomplete="off">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <input type="hidden" name="form_type" value="telegram">
+
+            <div class="form-group" style="margin-bottom: var(--space-md);">
+                <label class="form-label" for="telegram_bot_token" style="font-weight: 600;">
+                    Bot Token
+                </label>
+                <div class="text-small text-muted" style="margin-bottom: var(--space-xs);">
+                    הטוקן שקיבלת מ-BotFather בטלגרם. שינוי יחול לאחר הפעלת השרת מחדש - פנה למפתח עם הבקשה.
+                    {% if has_bot_token %}
+                    <span style="color: var(--success);">&#10003; מוגדר.</span> השאירו ריק כדי לא לשנות.
+                    {% else %}
+                    <span style="color: var(--danger);">&#10007; לא מוגדר — חובה להזין.</span>
+                    {% endif %}
+                </div>
+                <input type="password" class="form-control" id="telegram_bot_token"
+                       name="telegram_bot_token" value=""
+                       placeholder="טוקן חדש (ריק = ללא שינוי)"
+                       autocomplete="new-password"
+                       {% if telegram_disabled %}disabled{% endif %}
+                       style="max-width: 500px; direction: ltr; text-align: left;">
+                <button type="button" class="btn btn-secondary btn-sm" style="margin-top: var(--space-xs);"
+                        onclick="toggleVisibility('telegram_bot_token', this)"
+                        {% if telegram_disabled %}disabled{% endif %}>
+                    <i class="bi bi-eye"></i> הצג/הסתר
+                </button>
+            </div>
+
+            <div class="form-group" style="margin-bottom: var(--space-md);">
+                <label class="form-label" for="telegram_owner_chat_id" style="font-weight: 600;">
+                    Chat ID של הבעלים
+                </label>
+                <div class="text-small text-muted" style="margin-bottom: var(--space-xs);">
+                    מזהה הצ'אט שלך בטלגרם — לשם נשלחות התראות על בקשות נציג ותורים.
+                    ניתן לקבל מ-@userinfobot.
+                </div>
+                <input type="text" class="form-control" id="telegram_owner_chat_id"
+                       name="telegram_owner_chat_id" value="{{ telegram_owner_chat_id }}"
+                       placeholder="למשל: 123456789"
+                       inputmode="numeric"
+                       {% if telegram_disabled %}disabled{% endif %}
+                       style="max-width: 300px; direction: ltr; text-align: left;">
+            </div>
+
+            <button type="submit" class="btn btn-primary"
+                    {% if telegram_disabled %}disabled{% endif %}>
+                <i class="bi bi-check-lg"></i> שמירת הגדרות טלגרם
+            </button>
+        </form>
+    </div>
+</div>
+
+<!-- הגדרות WhatsApp (Twilio) -->
+<div class="card animate-slide-up stagger-2{% if whatsapp_disabled %} channel-card-disabled{% endif %}" style="margin-top: var(--space-sm);">
+    <div class="card-header">
+        <span><i class="bi bi-whatsapp"></i> חיבור WhatsApp (Twilio)</span>
+        {% if whatsapp_disabled %}
+        <span style="font-size: 0.85rem; opacity: 0.75;">
+            <i class="bi bi-lock-fill"></i> לא בשימוש בחבילה הנוכחית
+        </span>
+        {% endif %}
+    </div>
+    <div class="card-body">
+        {% if whatsapp_disabled %}
+        <div class="alert alert-info" style="margin-bottom: var(--space-md);">
+            <i class="bi bi-info-circle"></i>
+            החבילה הנוכחית שלך פועלת על <strong>Telegram</strong>.
+            הגדרות WhatsApp נעולות. לשינוי, צור קשר עם ספק השירות.
+        </div>
+        {% endif %}
+        <div class="text-small text-muted" style="margin-bottom: var(--space-md);">
+            הערכים מגיעים מקונסולת Twilio (Account SID, Auth Token, ומספר WhatsApp Business).
+            שינוי יחול לאחר הפעלת השרת מחדש - פנה למפתח עם הבקשה.
+        </div>
+        <form method="POST" action="{{ url_for('bot_config') }}" autocomplete="off">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <input type="hidden" name="form_type" value="whatsapp">
+
+            <div class="form-group" style="margin-bottom: var(--space-md);">
+                <label class="form-label" for="twilio_account_sid" style="font-weight: 600;">
+                    Account SID
+                </label>
+                <div class="text-small text-muted" style="margin-bottom: var(--space-xs);">
+                    מתחיל ב-AC ובאורך 34 תווים. נמצא בקונסולת Twilio.
+                    {% if has_twilio_account_sid %}
+                    <span style="color: var(--success);">&#10003; מוגדר.</span> השאירו ריק כדי לא לשנות.
+                    {% else %}
+                    <span style="color: var(--warning);">&#10007; לא מוגדר.</span>
+                    {% endif %}
+                </div>
+                <input type="password" class="form-control" id="twilio_account_sid"
+                       name="twilio_account_sid" value=""
+                       placeholder="ACxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+                       autocomplete="new-password"
+                       {% if whatsapp_disabled %}disabled{% endif %}
+                       style="max-width: 500px; direction: ltr; text-align: left;">
+                <button type="button" class="btn btn-secondary btn-sm" style="margin-top: var(--space-xs);"
+                        onclick="toggleVisibility('twilio_account_sid', this)"
+                        {% if whatsapp_disabled %}disabled{% endif %}>
+                    <i class="bi bi-eye"></i> הצג/הסתר
+                </button>
+            </div>
+
+            <div class="form-group" style="margin-bottom: var(--space-md);">
+                <label class="form-label" for="twilio_auth_token" style="font-weight: 600;">
+                    Auth Token
+                </label>
+                <div class="text-small text-muted" style="margin-bottom: var(--space-xs);">
+                    32 תווי hex. סודי — שמש לחתימת webhook ולקריאות API.
+                    {% if has_twilio_auth_token %}
+                    <span style="color: var(--success);">&#10003; מוגדר.</span> השאירו ריק כדי לא לשנות.
+                    {% else %}
+                    <span style="color: var(--warning);">&#10007; לא מוגדר.</span>
+                    {% endif %}
+                </div>
+                <input type="password" class="form-control" id="twilio_auth_token"
+                       name="twilio_auth_token" value=""
+                       placeholder="טוקן חדש (ריק = ללא שינוי)"
+                       autocomplete="new-password"
+                       {% if whatsapp_disabled %}disabled{% endif %}
+                       style="max-width: 500px; direction: ltr; text-align: left;">
+                <button type="button" class="btn btn-secondary btn-sm" style="margin-top: var(--space-xs);"
+                        onclick="toggleVisibility('twilio_auth_token', this)"
+                        {% if whatsapp_disabled %}disabled{% endif %}>
+                    <i class="bi bi-eye"></i> הצג/הסתר
+                </button>
+            </div>
+
+            <div class="form-group" style="margin-bottom: var(--space-md);">
+                <label class="form-label" for="twilio_whatsapp_number" style="font-weight: 600;">
+                    מספר WhatsApp Business
+                </label>
+                <div class="text-small text-muted" style="margin-bottom: var(--space-xs);">
+                    בפורמט E.164 (+ קידומת מדינה ומספר), למשל +14155551234. ניקוי השדה משבית את WhatsApp.
+                </div>
+                <input type="text" class="form-control" id="twilio_whatsapp_number"
+                       name="twilio_whatsapp_number" value="{{ twilio_whatsapp_number }}"
+                       placeholder="+14155551234"
+                       inputmode="tel"
+                       {% if whatsapp_disabled %}disabled{% endif %}
+                       style="max-width: 300px; direction: ltr; text-align: left;">
+            </div>
+
+            <button type="submit" class="btn btn-primary"
+                    {% if whatsapp_disabled %}disabled{% endif %}>
+                <i class="bi bi-check-lg"></i> שמירת הגדרות WhatsApp
+            </button>
+        </form>
+    </div>
+</div>
+
+<!-- חיבור Meta (Instagram + Messenger) -->
+{# הכרטיס מציג בעיקר סטטוס + ניווט לעמוד OAuth ייעודי
+   (/admin/meta/setup). את ה-secrets (App ID/Secret) לא מציגים כאן
+   כי אין UI לשמירתם — הם מוגדרים כ-env vars ב-deployment בלבד,
+   כדי לא לחשוף אותם מהעמוד. הכרטיס משמש בעיקר כתעודת זיהוי:
+   "האם הכל מחובר? איפה הקישורים שאצטרך?" #}
+<div class="card animate-slide-up stagger-3" style="margin-top: var(--space-sm);">
+    <div class="card-header">
+        <span><i class="bi bi-instagram"></i> חיבור Instagram + Messenger</span>
+        {% if meta_pages %}
+        <span class="badge badge-success">{{ meta_pages|length }} עמוד{% if meta_pages|length > 1 %}ים{% endif %} מחובר{% if meta_pages|length > 1 %}ים{% endif %}</span>
+        {% else %}
+        <span class="badge badge-secondary">לא מחובר</span>
+        {% endif %}
+    </div>
+    <div class="card-body">
+        {% if meta_env_missing %}
+        {# חוסר משתני סביבה — לפני שאפשר בכלל לעבוד #}
+        <div class="alert alert-warning" style="margin-bottom: var(--space-md);">
+            <i class="bi bi-exclamation-triangle"></i>
+            <strong>חסרים משתני סביבה:</strong>
+            <code style="direction: ltr; text-align: left; display: inline-block;">{{ meta_env_missing|join(', ') }}</code>.
+            <br>
+            כדי להפעיל את החיבור, יש להגדיר אותם בסביבת ההרצה (Render → Environment).
+            הערכים מתקבלים מ-<a href="https://developers.facebook.com/apps/" target="_blank" rel="noopener">Meta for Developers</a>
+            אחרי יצירת אפליקציה והפעלת מוצרי Messenger + Instagram + Webhooks.
+        </div>
+        {% else %}
+        <div class="text-small text-muted" style="margin-bottom: var(--space-md);">
+            כל משתני הסביבה מוגדרים. ניתן לחבר עמוד פייסבוק (וחשבון Instagram מקושר) דרך OAuth.
+        </div>
+        {% endif %}
+
+        {# קישורים שצריך להעתיק ל-Meta Developer Console #}
+        <div style="margin-bottom: var(--space-md);">
+            <div class="form-group" style="margin-bottom: var(--space-sm);">
+                <label class="form-label" style="font-weight: 600;">Webhook Callback URL</label>
+                <div class="text-small text-muted" style="margin-bottom: var(--space-xs);">
+                    להגדרה ב-Meta Developer Console → Webhooks → Configure.
+                </div>
+                <input type="text" class="form-control" readonly
+                       value="{{ meta_webhook_url or '(חסר ADMIN_URL — הגדירו אותו קודם)' }}"
+                       onclick="this.select()"
+                       style="max-width: 600px; direction: ltr; text-align: left; cursor: pointer;">
+            </div>
+
+            <div class="form-group" style="margin-bottom: var(--space-sm);">
+                <label class="form-label" style="font-weight: 600;">Verify Token</label>
+                <div class="text-small text-muted" style="margin-bottom: var(--space-xs);">
+                    יש להזין את אותו ערך בקונסולת Meta בעת הגדרת ה-webhook.
+                </div>
+                <input type="text" class="form-control" readonly
+                       value="{{ meta_verify_token or '(חסר META_VERIFY_TOKEN)' }}"
+                       onclick="this.select()"
+                       style="max-width: 600px; direction: ltr; text-align: left; cursor: pointer;">
+            </div>
+
+            <div class="form-group">
+                <label class="form-label" style="font-weight: 600;">OAuth Redirect URI</label>
+                <div class="text-small text-muted" style="margin-bottom: var(--space-xs);">
+                    להוסיף ב-App Settings → Facebook Login → Valid OAuth Redirect URIs.
+                    הערך מגיע מ-<code>META_OAUTH_REDIRECT_URI</code> ב-env.
+                </div>
+                <input type="text" class="form-control" readonly
+                       value="{{ meta_oauth_redirect_uri or '(חסר META_OAUTH_REDIRECT_URI)' }}"
+                       onclick="this.select()"
+                       style="max-width: 600px; direction: ltr; text-align: left; cursor: pointer;">
+            </div>
+        </div>
+
+        {# עמודים מחוברים — תצוגה מסוכמת. ניהול מלא (ניתוק וכו') בעמוד /admin/meta/setup #}
+        {% if meta_pages %}
+        <div style="margin-bottom: var(--space-md);">
+            <label class="form-label" style="font-weight: 600;">עמודים מחוברים</label>
+            <ul style="list-style: none; padding: 0; margin: 0;">
+                {% for p in meta_pages %}
+                <li style="padding: var(--space-xs) 0; border-bottom: 1px solid var(--border);">
+                    <i class="bi bi-facebook" style="color: #1877F2;"></i>
+                    <strong>{{ p.page_name or p.page_id }}</strong>
+                    {% if p.ig_username %}
+                    <span class="text-small text-muted">+ <i class="bi bi-instagram"></i> @{{ p.ig_username }}</span>
+                    {% elif p.ig_business_account_id %}
+                    <span class="text-small text-muted">+ <i class="bi bi-instagram"></i> Instagram</span>
+                    {% endif %}
+                </li>
+                {% endfor %}
+            </ul>
+        </div>
+        {% endif %}
+
+        <div>
+            <a href="/admin/meta/setup" class="btn btn-primary">
+                <i class="bi bi-plug"></i>
+                {% if meta_pages %}ניהול חיבורים{% else %}התחברות לעמוד פייסבוק{% endif %}
+            </a>
+        </div>
+    </div>
+</div>
+
+<!-- הגדרות אדמין -->
+<div class="card animate-slide-up stagger-3" style="margin-top: var(--space-sm);">
+    <div class="card-header">
+        <span><i class="bi bi-shield-lock"></i> הגדרות גישה לפאנל</span>
+    </div>
+    <div class="card-body">
+        <form method="POST" action="{{ url_for('bot_config') }}" autocomplete="off">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <input type="hidden" name="form_type" value="admin">
+
+            <div class="form-group" style="margin-bottom: var(--space-md);">
+                <label class="form-label" for="admin_username" style="font-weight: 600;">
+                    שם משתמש אדמין
+                </label>
+                <input type="text" class="form-control" id="admin_username"
+                       name="admin_username" value="{{ admin_username }}"
+                       required
+                       autocomplete="off"
+                       style="max-width: 300px; direction: ltr; text-align: left;">
+            </div>
+
+            <div class="form-group" style="margin-bottom: var(--space-md);">
+                <label class="form-label" for="admin_password" style="font-weight: 600;">
+                    סיסמת אדמין
+                </label>
+                <div class="text-small text-muted" style="margin-bottom: var(--space-xs);">
+                    השאירו ריק כדי לא לשנות את הסיסמה הנוכחית. הסיסמה נשמרת כ-hash מוצפן.
+                </div>
+                <input type="password" class="form-control" id="admin_password"
+                       name="admin_password" value=""
+                       placeholder="סיסמה חדשה (ריק = ללא שינוי)"
+                       autocomplete="new-password"
+                       style="max-width: 300px; direction: ltr; text-align: left;">
+                <button type="button" class="btn btn-secondary btn-sm" style="margin-top: var(--space-xs);"
+                        onclick="toggleVisibility('admin_password', this)">
+                    <i class="bi bi-eye"></i> הצג/הסתר
+                </button>
+            </div>
+
+            <div class="form-group" style="margin-bottom: var(--space-md);">
+                <label class="form-label" for="admin_secret_key" style="font-weight: 600;">
+                    מפתח סודי (Secret Key)
+                </label>
+                <div class="text-small text-muted" style="margin-bottom: var(--space-xs);">
+                    משמש להצפנת sessions ו-CSRF. מומלץ מחרוזת אקראית ארוכה.
+                    {% if has_secret_key %}
+                    <span style="color: var(--success);">&#10003; מוגדר.</span> השאירו ריק כדי לא לשנות.
+                    {% else %}
+                    <span style="color: var(--danger);">&#10007; לא מוגדר — חובה להזין.</span>
+                    {% endif %}
+                    שינוי ינתק את כל הסשנים הפעילים.
+                </div>
+                <input type="password" class="form-control" id="admin_secret_key"
+                       name="admin_secret_key" value=""
+                       placeholder="מפתח סודי חדש (ריק = ללא שינוי)"
+                       autocomplete="new-password"
+                       style="max-width: 500px; direction: ltr; text-align: left;">
+                <button type="button" class="btn btn-secondary btn-sm" style="margin-top: var(--space-xs);"
+                        onclick="toggleVisibility('admin_secret_key', this)">
+                    <i class="bi bi-eye"></i> הצג/הסתר
+                </button>
+            </div>
+
+            <button type="submit" class="btn btn-primary">
+                <i class="bi bi-check-lg"></i> שמירת הגדרות גישה
+            </button>
+        </form>
+    </div>
+</div>
+
+<!-- הערה על הפעלה מחדש -->
+<div class="card animate-slide-up stagger-3" style="margin-top: var(--space-sm);">
+    <div class="card-header">
+        <span><i class="bi bi-info-circle"></i> שימו לב</span>
+    </div>
+    <div class="card-body">
+        <ul style="margin: 0; padding-right: var(--space-md); line-height: 1.8;">
+            <li>שינוי <b>Bot Token</b> יחול רק לאחר הפעלה מחדש של השרת.</li>
+            <li>שינוי <b>שם משתמש או סיסמה</b> יחול מיד בהתחברות הבאה.</li>
+            <li>שינוי <b>מפתח סודי</b> ינתק את כל הסשנים הפעילים — תצטרכו להתחבר מחדש.</li>
+        </ul>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+function toggleVisibility(inputId, btn) {
+    var input = document.getElementById(inputId);
+    if (input.type === 'password') {
+        input.type = 'text';
+        btn.querySelector('i').className = 'bi bi-eye-slash';
+    } else {
+        input.type = 'password';
+        btn.querySelector('i').className = 'bi bi-eye';
+    }
+}
+</script>
+{% endblock %}
