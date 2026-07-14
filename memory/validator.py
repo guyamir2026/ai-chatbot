@@ -139,18 +139,26 @@ def validate_extraction(
     return True, None
 
 
-def _determine_status(confidence: float, requires_consent: bool) -> str:
-    """טבלת ההחלטה מה-spec:
+def _determine_status(
+    confidence: float, requires_consent: bool, auto_approve: bool = False,
+) -> str:
+    """טבלת ההחלטה — מה נכנס ל-active מיד ומה לתור אישור.
 
-    | confidence | requires_consent | status           |
-    |------------|------------------|------------------|
-    | >= 0.85    | False            | active           |
-    | >= 0.85    | True             | pending_approval |
-    | 0.60-0.84  | any              | pending_approval |
+    | confidence | requires_consent | auto_approve | status           |
+    |------------|------------------|--------------|------------------|
+    | any        | True             | any          | pending_approval |
+    | >= 0.85    | False            | any          | active           |
+    | 0.60-0.84  | False            | False        | pending_approval |
+    | 0.60-0.84  | False            | True         | active           |
+
+    מידע רגיש (requires_consent) **תמיד** דורש אישור ידני — auto_approve
+    אינו עוקף את שער הפרטיות (החלטה מכוונת).
     """
-    if confidence >= _ACTIVE_CONFIDENCE_THRESHOLD and not requires_consent:
+    if requires_consent:
+        return "pending_approval"
+    if confidence >= _ACTIVE_CONFIDENCE_THRESHOLD:
         return "active"
-    return "pending_approval"
+    return "active" if auto_approve else "pending_approval"
 
 
 def _is_active_dup(
@@ -204,6 +212,16 @@ def save_extractions(
     # בלולאה הזו. מונע orphans כשה-LLM מחזיר שני actions על אותו fact.
     targeted_ids: set[int] = set()
 
+    # אישור אוטומטי פר-עסק (ברירת מחדל: כבוי). נקרא פעם אחת לפני הלולאה.
+    # מידע רגיש (requires_consent) נשאר בתור לאישור ידני גם כשזה דלוק.
+    try:
+        auto_approve = db.is_memory_auto_approve()
+    except Exception:
+        logger.error(
+            "save_extractions: קריאת memory_auto_approve נכשלה", exc_info=True,
+        )
+        auto_approve = False
+
     for ext in extractions or []:
         action = ext.get("action")
         # כל פריט עטוף ב-try/except (CLAUDE.md — לולאות I/O ארוכות).
@@ -213,7 +231,7 @@ def save_extractions(
             fact_type = ext.get("fact_type")
             content = (ext.get("content") or "").strip()
             evidence = (ext.get("evidence") or "").strip()
-            status = _determine_status(confidence, requires_consent)
+            status = _determine_status(confidence, requires_consent, auto_approve)
 
             if action == "add":
                 # dedup רק כש-status='active' — pending_approval מותר להכפיל.

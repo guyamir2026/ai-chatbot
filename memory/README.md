@@ -270,10 +270,19 @@ SELECT user_id, COUNT(*) FROM customer_facts GROUP BY user_id;
 `requires_consent=true` (PII רגיש — בריאות/פיננסי/משפחתי/דתי/מיני) או
 כש-`0.60 ≤ confidence < 0.85` (`memory/validator.py:_determine_status`).
 
+**מתג "אישור אוטומטי" (`memory_auto_approve` ב-`bot_settings`, פר-עסק,
+ברירת מחדל כבוי):** כשדלוק, facts לא-רגישים בביטחון בינוני
+(`0.60 ≤ confidence < 0.85`) עוברים ישר ל-`active` בלי להמתין בתור.
+מידע רגיש (`requires_consent=true`) **תמיד** נשאר `pending_approval` —
+שער הפרטיות אינו נעקף (`_determine_status` מחזיר `pending_approval`
+עבור requires_consent לפני שהוא בכלל בודק את `auto_approve`).
+
 **פעולות:**
 - "אשר" → `status='active'` (ה-fact מוזרק לבוט בשיחות הבאות).
 - "דחה" → `status='rejected'` (לא מוזרק; נשמר ל-audit).
 - "אשר הכל" → bulk UPDATE (טרנזקציה אחת, ללא race conditions).
+- מתג "אישור אוטומטי" → `POST /pending-facts/settings` (מעדכן
+  `memory_auto_approve`). משפיע על חילוצים **עתידיים** בלבד.
 
 Auto-refresh כל 15 שניות דרך `/api/pending-facts/rows` (HTMX). badge
 בסיידבר מציג את המספר (`/api/stats` עכשיו מחזיר `pending_facts`).

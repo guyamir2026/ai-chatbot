@@ -160,6 +160,49 @@ class TestApproveReject:
         assert pending == 0
 
 
+class TestPendingFactsAutoApproveToggle:
+    """מתג האישור האוטומטי בעמוד תור אישור — מעדכן memory_auto_approve
+    ב-bot_settings פר-עסק. ברירת מחדל כבוי (התנהגות קיימת נשמרת)."""
+
+    def test_toggle_card_rendered(self, client, db_conn):
+        resp = client.get("/pending-facts")
+        body = resp.data.decode("utf-8")
+        assert "אישור אוטומטי" in body
+        assert 'name="memory_auto_approve"' in body
+        assert 'action="/pending-facts/settings"' in body
+
+    def test_default_off(self, client, db_conn):
+        from database import is_memory_auto_approve
+        assert is_memory_auto_approve() is False
+
+    def test_enable_persists(self, client, db_conn):
+        from database import is_memory_auto_approve
+        resp = client.post(
+            "/pending-facts/settings",
+            data={"memory_auto_approve": "1"},
+        )
+        assert resp.status_code in (302, 303)
+        assert is_memory_auto_approve() is True
+
+    def test_disable_persists(self, client, db_conn):
+        from database import is_memory_auto_approve, update_bot_settings
+        # קודם מדליקים
+        update_bot_settings("friendly", memory_auto_approve=True)
+        assert is_memory_auto_approve() is True
+        # אז מכבים — checkbox לא מסומן → הפרמטר נעדר מהטופס
+        resp = client.post("/pending-facts/settings", data={})
+        assert resp.status_code in (302, 303)
+        assert is_memory_auto_approve() is False
+
+    def test_badge_reflects_state(self, client, db_conn):
+        from database import update_bot_settings
+        update_bot_settings("friendly", memory_auto_approve=True)
+        resp = client.get("/pending-facts")
+        body = resp.data.decode("utf-8")
+        # ה-checkbox מסומן כשהמתג דלוק
+        assert "checked" in body
+
+
 # ────────────────────────────────────────────────────────────────────
 # /customer-memory
 # ────────────────────────────────────────────────────────────────────

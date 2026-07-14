@@ -3254,7 +3254,32 @@ self.addEventListener('notificationclick', (event) => {
             "pending_facts.html",
             facts=facts,
             total_pending=total_pending,
+            auto_approve=db.is_memory_auto_approve(),
         )
+
+    @app.route("/pending-facts/settings", methods=["POST"])
+    @login_required
+    def pending_facts_settings():
+        """עדכון הגדרת אישור אוטומטי של עובדות זיכרון (פר-עסק).
+
+        עובדות לא-רגישות בביטחון בינוני (0.60-0.84) מאושרות אוטומטית
+        כשזה דלוק. מידע רגיש (requires_consent) נשאר בתור לאישור ידני
+        תמיד — שער הפרטיות אינו נעקף.
+        """
+        auto_approve = bool(request.form.get("memory_auto_approve"))
+        current = db.get_bot_settings()
+        db.update_bot_settings(
+            current["tone"], current.get("custom_phrases", ""),
+            memory_auto_approve=auto_approve,
+        )
+        _audit_log("pending_facts_settings", f"memory_auto_approve={auto_approve}")
+        flash(
+            "אישור אוטומטי הופעל — עובדות לא-רגישות יאושרו אוטומטית "
+            "(מידע רגיש עדיין דורש אישור ידני)." if auto_approve
+            else "אישור אוטומטי כובה — כל עובדה חדשה תמתין לאישורך.",
+            "success",
+        )
+        return redirect(url_for("pending_facts"))
 
     @app.route("/api/pending-facts/rows")
     @login_required

@@ -161,10 +161,28 @@ class TestStatusDecisionTable:
         assert validator._determine_status(0.9, True) == "pending_approval"
         assert validator._determine_status(0.99, True) == "pending_approval"
 
-    def test_mid_confidence_always_pending(self):
+    def test_mid_confidence_pending_when_auto_approve_off(self):
+        # ברירת מחדל: auto_approve=False → בטחון בינוני נשאר pending.
         assert validator._determine_status(0.84, False) == "pending_approval"
         assert validator._determine_status(0.7, True) == "pending_approval"
         assert validator._determine_status(0.6, False) == "pending_approval"
+
+    def test_mid_confidence_active_when_auto_approve_on(self):
+        # auto_approve=True → בטחון בינוני לא-רגיש עובר ל-active מיד.
+        assert validator._determine_status(0.84, False, True) == "active"
+        assert validator._determine_status(0.6, False, True) == "active"
+
+    def test_sensitive_always_pending_even_with_auto_approve(self):
+        # שער הפרטיות אינו נעקף: requires_consent=True נשאר pending גם
+        # כש-auto_approve דלוק, בכל רמת בטחון.
+        assert validator._determine_status(0.99, True, True) == "pending_approval"
+        assert validator._determine_status(0.7, True, True) == "pending_approval"
+        assert validator._determine_status(0.6, True, True) == "pending_approval"
+
+    def test_high_confidence_active_regardless_of_auto_approve(self):
+        # בטחון גבוה לא-רגיש כבר active בלי קשר ל-auto_approve.
+        assert validator._determine_status(0.9, False, False) == "active"
+        assert validator._determine_status(0.9, False, True) == "active"
 
 
 # ────────────────────────────────────────────────────────────────────
@@ -448,6 +466,71 @@ class TestSaveExtractions:
         assert counts["added"] == 1
         assert counts["errors"] >= 1
         assert len(get_customer_facts("u1", status="active")) == 1
+
+
+# ────────────────────────────────────────────────────────────────────
+# save_extractions — אישור אוטומטי פר-עסק (memory_auto_approve)
+# ────────────────────────────────────────────────────────────────────
+
+
+class TestSaveExtractionsAutoApprove:
+    """כשהמתג memory_auto_approve דלוק, עובדות לא-רגישות בבטחון בינוני
+    נכנסות ל-active מיד. מידע רגיש נשאר בתור לאישור ידני — שער הפרטיות
+    אינו נעקף."""
+
+    def test_mid_confidence_active_when_auto_approve_on(self, db_conn):
+        from database import get_customer_facts
+
+        with patch.object(validator.db, "is_memory_auto_approve", return_value=True):
+            counts = validator.save_extractions(
+                [_ext(confidence=0.72)],
+                user_id="u1", business_id="default",
+            )
+        assert counts["added"] == 1
+        # בטחון בינוני (0.72) שהיה pending כברירת מחדל — עכשיו active.
+        assert len(get_customer_facts("u1", status="active")) == 1
+        assert len(get_customer_facts("u1", status="pending_approval")) == 0
+
+    def test_sensitive_stays_pending_even_when_auto_approve_on(self, db_conn):
+        from database import get_customer_facts
+
+        with patch.object(validator.db, "is_memory_auto_approve", return_value=True):
+            validator.save_extractions(
+                [_ext(content="רגישה לאגוזים", confidence=0.72,
+                      requires_consent=True, fact_type="personal_info")],
+                user_id="u1", business_id="default",
+            )
+        # שער הפרטיות: מידע רגיש נשאר בתור גם כש-auto_approve דלוק.
+        assert len(get_customer_facts("u1", status="active")) == 0
+        pending = get_customer_facts("u1", status="pending_approval")
+        assert len(pending) == 1
+        assert pending[0]["requires_consent"] == 1
+
+    def test_mid_confidence_stays_pending_when_auto_approve_off(self, db_conn):
+        from database import get_customer_facts
+
+        with patch.object(validator.db, "is_memory_auto_approve", return_value=False):
+            validator.save_extractions(
+                [_ext(confidence=0.72)],
+                user_id="u1", business_id="default",
+            )
+        # ברירת מחדל (כבוי) — התנהגות קיימת נשמרת.
+        assert len(get_customer_facts("u1", status="active")) == 0
+        assert len(get_customer_facts("u1", status="pending_approval")) == 1
+
+    def test_read_failure_falls_back_to_manual(self, db_conn):
+        """אם קריאת ההגדרה נכשלת — fail-safe ל-manual (pending), לא active."""
+        from database import get_customer_facts
+
+        with patch.object(validator.db, "is_memory_auto_approve",
+                          side_effect=RuntimeError("db locked")):
+            validator.save_extractions(
+                [_ext(confidence=0.72)],
+                user_id="u1", business_id="default",
+            )
+        # כשל בקריאה → auto_approve=False → נשאר pending (בטוח).
+        assert len(get_customer_facts("u1", status="active")) == 0
+        assert len(get_customer_facts("u1", status="pending_approval")) == 1
 
 
 # ────────────────────────────────────────────────────────────────────

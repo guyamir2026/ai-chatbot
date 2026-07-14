@@ -17,6 +17,40 @@
     {% endif %}
 </div>
 
+{# ── מתג אישור אוטומטי — עובדות לא-רגישות מאושרות ללא המתנה ── #}
+<div class="card animate-slide-up" style="margin-bottom: 1.5rem;">
+    <div class="card-header">
+        <span><i class="bi bi-magic"></i> אישור אוטומטי</span>
+        {% if auto_approve %}
+        <span class="badge badge-success">פעיל</span>
+        {% else %}
+        <span class="badge badge-muted">כבוי</span>
+        {% endif %}
+    </div>
+    <div class="card-body">
+        <form method="POST" action="{{ url_for('pending_facts_settings') }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <div class="text-small text-muted" style="margin-bottom: var(--space-md);">
+                כשמופעל — עובדות חדשות שאינן רגישות מאושרות אוטומטית ונכנסות
+                לזיכרון הלקוח מיד, בלי להמתין כאן. <strong>מידע רגיש</strong>
+                (בריאות, נתונים אישיים וכו') <strong>תמיד</strong> ימתין לאישורך
+                הידני — גם כשהמתג דלוק.
+            </div>
+            <div class="form-group" style="margin-bottom: var(--space-md);">
+                <label style="display: flex; align-items: center; gap: var(--space-sm); cursor: pointer;">
+                    <input type="checkbox" name="memory_auto_approve" value="1"
+                           {% if auto_approve %}checked{% endif %}
+                           style="width: 18px; height: 18px;">
+                    <span style="font-weight: 600;">אשר אוטומטית עובדות לא-רגישות</span>
+                </label>
+            </div>
+            <button type="submit" class="btn btn-primary">
+                <i class="bi bi-check-lg"></i> שמירה
+            </button>
+        </form>
+    </div>
+</div>
+
 {% if facts and total_pending > facts|length %}
 <div class="alert alert-info" style="margin-bottom: 1rem;">
     <i class="bi bi-info-circle"></i>
