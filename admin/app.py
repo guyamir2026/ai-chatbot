@@ -6719,41 +6719,48 @@ self.addEventListener('notificationclick', (event) => {
         logger.info("Meta webhook blueprint registered at /webhooks/meta")
 
     # ─── דפים משפטיים פומביים — מדיניות פרטיות ותנאי שימוש ─────────────────
-    # נדרשים בתיקון 13. הקישור אליהם מוצג למשתמש במסך ההסכמה הראשוני בבוט.
-    # נטענים מקבצי markdown ב-docs/legal ומוצגים ב-HTML פשוט עם RTL.
+    # נדרשים בתיקון 13. הקישור מוצג בהודעת הפתיחה (implied consent) ובמסך
+    # ההסכמה. נטענים מקבצי markdown ב-docs/legal, עם שם העסק מוזרק (פר-tenant)
+    # ו-HTML גולמי מסונן (route ציבורי ללא login). הנתיב /t/<slug>/legal מגיש
+    # עבור אותו tenant — כדי ששם העסק הנכון יוזרק גם בפלטפורמה מרוכזת.
+    _LEGAL_DOCS = {
+        "terms": ("terms.md", "תנאי שימוש"),
+        "privacy": ("privacy.md", "מדיניות פרטיות"),
+    }
 
-    def _render_legal_doc(filename: str, title: str):
-        import re
-        from pathlib import Path
+    def _render_legal_body(filename):
+        """גוף HTML של מסמך משפטי (בלי מעטפת), עם שם העסק מוזרק וסניטציה.
+        מחזיר None אם הקובץ חסר."""
+        import re as _re
+        from pathlib import Path as _Path
         from markupsafe import escape as _esc
 
-        repo_root = Path(__file__).resolve().parent.parent
-        doc_path = repo_root / "docs" / "legal" / filename
+        doc_path = _Path(__file__).resolve().parent.parent / "docs" / "legal" / filename
         try:
             content = doc_path.read_text(encoding="utf-8")
-        except FileNotFoundError:
-            return f"<h1>{_esc(title)}</h1><p>המסמך לא נמצא.</p>", 404
-
-        # אבטחה — חוסמים raw HTML במקור ה-markdown לפני רינדור.
-        # ה-route ציבורי (ללא login), ולכן גם אם רק אנחנו מעדכנים את הקבצים,
-        # מסירים תגיות גולמיות כדי שלא ייכנסו <script>/<iframe>/וכו'.
-        # התוצאה: רק markdown formatting (כותרות, רשימות, טבלאות, bold) הופך
-        # ל-HTML — כל תגית גולמית בקובץ הופכת לטקסט רגיל.
-        sanitized_content = re.sub(r"<[^>]+>", "", content)
-
-        # רינדור markdown בסיסי בלי תלות חיצונית — שומר על RTL וטיפוגרפיה ברורה
+        except OSError:
+            logger.error("legal doc read failed: %s", filename, exc_info=True)
+            return None
+        # אבטחה — מסירים raw HTML במקור לפני רינדור (route ציבורי): כל תגית
+        # גולמית הופכת לטקסט, כך שרק markdown formatting הופך ל-HTML.
+        content = _re.sub(r"<[^>]+>", "", content)
         try:
-            from markdown import markdown
-            body_html = markdown(sanitized_content, extensions=["tables", "fenced_code"])
+            from markdown import markdown as _markdown
+            body = _markdown(content, extensions=["tables", "fenced_code"])
         except ImportError:
-            # fallback — אם markdown לא מותקן, מציגים pre-formatted
-            body_html = f"<pre>{_esc(sanitized_content)}</pre>"
+            body = f"<pre>{_esc(content)}</pre>"
+        # שם העסק מוזרק אחרי הרינדור, escaped (ה-placeholder שורד את markdown).
+        return body.replace("[שם בעל העסק]", str(_esc(get_business_config().name)))
+
+    def _legal_page_response(title, inner_html, status=200):
+        from markupsafe import escape as _esc
 
         page = f"""<!doctype html>
 <html lang=\"he\" dir=\"rtl\">
 <head>
 <meta charset=\"utf-8\">
 <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">
+<meta name=\"robots\" content=\"noindex, nofollow\">
 <title>{_esc(title)}</title>
 <style>
 body {{ font-family: -apple-system, system-ui, 'Segoe UI', Arial, sans-serif;
@@ -6768,21 +6775,52 @@ hr {{ border: none; border-top: 1px solid #ddd; margin: 2em 0; }}
 </style>
 </head>
 <body>
-{body_html}
+{inner_html}
 </body>
 </html>
 """
-        return page, 200
+        resp = app.make_response((page, status))
+        resp.headers["X-Robots-Tag"] = "noindex, nofollow"
+        return resp
 
-    @app.route("/legal/terms")
-    def legal_terms():
-        html, code = _render_legal_doc("terms.md", "תנאי שימוש")
-        return html, code
+    def _legal_doc_response(doc_key):
+        entry = _LEGAL_DOCS.get(doc_key)
+        if not entry:
+            return _legal_page_response("מסמך לא נמצא", "<h1>המסמך לא נמצא</h1>", 404)
+        body = _render_legal_body(entry[0])
+        if body is None:
+            return _legal_page_response(entry[1], "<h1>המסמך לא נמצא</h1>", 404)
+        return _legal_page_response(entry[1], body)
 
-    @app.route("/legal/privacy")
-    def legal_privacy():
-        html, code = _render_legal_doc("privacy.md", "מדיניות פרטיות")
-        return html, code
+    @app.route("/legal")
+    @app.route("/t/<tenant_id>/legal", endpoint="legal_index_tenant")
+    def legal_index(tenant_id=None):
+        """עמוד משפטי — תנאי שימוש + מדיניות פרטיות באותו עמוד (קישור אחד)."""
+        def _impl():
+            parts = [b for _fn, _t in _LEGAL_DOCS.values()
+                     for b in (_render_legal_body(_fn),) if b]
+            if not parts:
+                return _legal_page_response("מסמכים משפטיים", "<h1>המסמכים לא נמצאו</h1>", 404)
+            return _legal_page_response("מסמכים משפטיים", "\n<hr>\n".join(parts))
+        if tenant_id is not None:
+            ctx = _bind_public_tenant(tenant_id)
+            if ctx is None:
+                return _legal_page_response("לא נמצא", "", 404)
+            with ctx:
+                return _impl()
+        return _impl()
+
+    @app.route("/legal/<doc_key>")
+    @app.route("/t/<tenant_id>/legal/<doc_key>", endpoint="legal_doc_tenant")
+    def legal_doc(doc_key, tenant_id=None):
+        """מסמך משפטי בודד (terms/privacy)."""
+        if tenant_id is not None:
+            ctx = _bind_public_tenant(tenant_id)
+            if ctx is None:
+                return _legal_page_response("לא נמצא", "", 404)
+            with ctx:
+                return _legal_doc_response(doc_key)
+        return _legal_doc_response(doc_key)
 
     return app
 

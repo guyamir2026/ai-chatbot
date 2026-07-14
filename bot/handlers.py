@@ -37,6 +37,8 @@ from ai_chatbot.business_hours import is_currently_open, get_weekly_schedule_tex
 from ai_chatbot.config import (
     ADMIN_URL,
     get_business_config,
+    build_intro_disclaimer,
+    CONSENT_SCREEN_ENABLED,
     TELEGRAM_OWNER_CHAT_ID,
     FALLBACK_RESPONSE,
     CONTEXT_WINDOW_SIZE,
@@ -483,8 +485,14 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # בדיקה אם לקוח חוזר (יש לו תורים שאושרו/בוצעו בעבר)
     returning = db.is_returning_customer(user_id)
 
+    # הודעת פתיחה משפטית (implied consent) — פעם אחת לפונה חדש. רק כשמסך
+    # ההסכמה המפורש כבוי (ברירת המחדל); כשהוא דלוק — המסך כבר טיפל בהסכמה.
+    show_disclaimer = (not CONSENT_SCREEN_ENABLED) and not db.disclaimer_sent(user_id)
+
     # _html.escape לערכי קונפיג בודדים; sanitize_telegram_html לפלט LLM שלם
-    if returning:
+    if show_disclaimer:
+        welcome_text = build_intro_disclaimer(html_link=True)
+    elif returning:
         welcome_text = (
             f"😊 שמחים לראות אותך שוב ב-<b>{_html.escape(get_business_config().name)}</b>!\n\n"
             f"איך אפשר לעזור הפעם?\n"
@@ -518,6 +526,9 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         parse_mode="HTML",
         reply_markup=_get_main_keyboard(update)
     )
+    # סימון שנשלח (אחרי upsert_user לעיל — השורה קיימת) כדי לא לחזור עליו.
+    if show_disclaimer:
+        db.mark_disclaimer_sent(user_id)
 
     # Log the interaction
     db.save_message(user_id, display_name, "user", "/start")

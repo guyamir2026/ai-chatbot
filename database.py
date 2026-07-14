@@ -1399,6 +1399,33 @@ def has_consent(user_id: str) -> bool:
         return int(row["consent_version"] or 0) >= CURRENT_CONSENT_VERSION
 
 
+def disclaimer_sent(user_id: str) -> bool:
+    """האם כבר נשלחה למשתמש הודעת הפתיחה המשפטית (implied consent).
+
+    משמש כדי לשלוח את ה-disclaimer פעם אחת בלבד (בטלגרם /start יכול
+    להיקרא שוב ושוב). מחזיר False אם המשתמש לא ברשומות או שהשדה NULL.
+    """
+    with get_connection() as conn:
+        row = conn.execute(
+            "SELECT disclaimer_sent_at FROM users WHERE user_id = ?", (user_id,),
+        ).fetchone()
+    return bool(row and row["disclaimer_sent_at"])
+
+
+def mark_disclaimer_sent(user_id: str) -> None:
+    """סימון שהודעת הפתיחה המשפטית נשלחה (idempotent).
+
+    COALESCE שומר על הטיימסטמפ הראשון — קריאה חוזרת לא דורסת אותו.
+    מעדכן שורה *קיימת* בלבד; בטלגרם נקרא אחרי upsert_user (השורה כבר קיימת).
+    """
+    with get_connection() as conn:
+        conn.execute(
+            "UPDATE users SET disclaimer_sent_at = "
+            "COALESCE(disclaimer_sent_at, datetime('now')) WHERE user_id = ?",
+            (user_id,),
+        )
+
+
 def record_consent(user_id: str, username: str = "", channel: str = "telegram") -> None:
     """תיעוד הסכמה — שומר טיימסטמפ + גרסת המסמכים בשורת המשתמש,
     וכותב הוכחה פסאודונימית ל-consent_ledger (לשמירה אחרי /forget).
