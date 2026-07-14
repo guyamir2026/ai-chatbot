@@ -1,0 +1,170 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="page-header animate-fade-in">
+    <h1><i class="bi bi-buildings"></i> פרופיל עסק — מערכת זיכרון</h1>
+</div>
+
+<div class="card animate-slide-up">
+    <div class="card-header">
+        <span><i class="bi bi-info-circle"></i> פרטי העסק לצרכי ה-fact extractor</span>
+    </div>
+    <div class="card-body">
+        <div class="text-small text-muted" style="margin-bottom: var(--space-md); line-height: 1.6;">
+            הפרטים האלה משמשים את <strong>מערכת הזיכרון המתמשך</strong> — הם
+            מועברים ל-LLM כשהוא מחלץ עובדות יציבות על לקוחות מהשיחות.
+            ככל שהפרטים מדויקים יותר, ה-extractor מזהה טוב יותר מה רלוונטי
+            לזכור על כל לקוח.
+            <br>
+            <strong>אזהרה:</strong> כל התוכן בשדות האלה נשלח ל-OpenAI/Gemini.
+            אל תכלול שמות, טלפונים או מידע אישי של לקוחות.
+        </div>
+
+        <form method="POST" action="{{ url_for('business_profile_view') }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+
+            <div class="form-group" style="margin-bottom: var(--space-md);">
+                <label class="form-label" for="business_type" style="font-weight: 600;">סוג העסק</label>
+                <div class="text-small text-muted" style="margin-bottom: var(--space-xs);">
+                    קובע את הקונטקסט של ה-extractor (מה רלוונטי בעסק כזה).
+                </div>
+                <select class="form-control" id="business_type" name="business_type">
+                    <option value="">— בחר —</option>
+                    {% for opt in business_type_options %}
+                    <option value="{{ opt }}" {% if profile.business_type == opt %}selected{% endif %}>{{ opt }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+
+            <div class="form-group" style="margin-bottom: var(--space-md);">
+                <label class="form-label" for="business_name_field" style="font-weight: 600;">שם העסק</label>
+                <input type="text" class="form-control" id="business_name_field"
+                       name="business_name_field" value="{{ profile.business_name or '' }}"
+                       placeholder="לדוגמה: סטודיו לירון" maxlength="120">
+            </div>
+
+            <div class="form-group" style="margin-bottom: var(--space-md);">
+                <label class="form-label" for="what_matters" style="font-weight: 600;">מה חשוב לחלץ פר השיחות?</label>
+                <div class="text-small text-muted" style="margin-bottom: var(--space-xs);">
+                    כתוב/י בשפה חופשית אילו סוגי מידע על לקוחות שווה לזכור בעסק הזה.
+                    דוגמאות:
+                    <br>• <em>מספרה:</em> "סוג שיער, אורך מועדף, צבע נוכחי, אלרגיות למוצרים, אם הלקוחה מגיעה עם הילדים, ספרית מועדפת"
+                    <br>• <em>קליניקת אסתטיקה:</em> "סוג עור, רגישויות, טיפולים שניסתה בעבר, הריון, תרופות"
+                </div>
+                <textarea class="form-control" id="what_matters" name="what_matters_for_extraction"
+                          rows="5"
+                          placeholder="סוג שיער, אורך מועדף, אלרגיות, ילדים, ספרית מועדפת">{{ profile.what_matters_for_extraction or '' }}</textarea>
+            </div>
+
+            <div class="form-group" style="margin-bottom: var(--space-md);">
+                <label class="form-label" style="font-weight: 600;">שירותים</label>
+                <div class="text-small text-muted" style="margin-bottom: var(--space-sm);">
+                    שם השירות + כינויים שלקוחות משתמשים בהם (מופרדים בפסיק) + קטגוריה.
+                    ה-extractor משתמש בזה כדי לזהות שלקוחה שכותבת "הטיפול הקבוע"
+                    מתכוונת ל"מניקור ג'ל" (vocabulary fact).
+                </div>
+
+                <div class="table-wrapper">
+                    <table style="width:100%; border-collapse: collapse;">
+                        <thead>
+                            <tr>
+                                <th style="text-align:right; padding:6px; width:30%;">שם השירות</th>
+                                <th style="text-align:right; padding:6px; width:35%;">כינויים (CSV)</th>
+                                <th style="text-align:right; padding:6px; width:25%;">קטגוריה</th>
+                                <th style="width:48px;"></th>
+                            </tr>
+                        </thead>
+                        <tbody id="services-tbody">
+                            {% for s in services %}
+                            <tr class="service-row">
+                                <td style="padding:4px;">
+                                    <input type="text" class="form-control" name="service_name"
+                                           value="{{ s.name or '' }}" placeholder="תספורת נשים" maxlength="80">
+                                </td>
+                                <td style="padding:4px;">
+                                    <input type="text" class="form-control" name="service_aliases"
+                                           value="{{ (s.aliases or []) | join(', ') }}"
+                                           placeholder="תספורת, גזירה" maxlength="200">
+                                </td>
+                                <td style="padding:4px;">
+                                    <input type="text" class="form-control" name="service_category"
+                                           value="{{ s.category or '' }}" placeholder="תספורות" maxlength="50">
+                                </td>
+                                <td style="padding:4px; text-align:center;">
+                                    <button type="button" class="btn btn-sm btn-outline-danger"
+                                            onclick="removeServiceRow(this)" title="הסר שירות"
+                                            aria-label="הסר שירות">
+                                        <i class="bi bi-trash"></i>
+                                    </button>
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+
+                {# Template לשורת שירות ריקה — JS משכפל את התוכן כשמוסיפים שורה. #}
+                <template id="service-row-template">
+                    <tr class="service-row">
+                        <td style="padding:4px;">
+                            <input type="text" class="form-control" name="service_name"
+                                   placeholder="שם השירות" maxlength="80">
+                        </td>
+                        <td style="padding:4px;">
+                            <input type="text" class="form-control" name="service_aliases"
+                                   placeholder="כינוי1, כינוי2" maxlength="200">
+                        </td>
+                        <td style="padding:4px;">
+                            <input type="text" class="form-control" name="service_category"
+                                   placeholder="קטגוריה" maxlength="50">
+                        </td>
+                        <td style="padding:4px; text-align:center;">
+                            <button type="button" class="btn btn-sm btn-outline-danger"
+                                    onclick="removeServiceRow(this)" title="הסר שירות"
+                                    aria-label="הסר שירות">
+                                <i class="bi bi-trash"></i>
+                            </button>
+                        </td>
+                    </tr>
+                </template>
+
+                <button type="button" class="btn btn-outline-secondary btn-sm"
+                        onclick="addServiceRow()" style="margin-top: var(--space-sm);">
+                    <i class="bi bi-plus-lg"></i> הוסף שירות
+                </button>
+            </div>
+
+            <div style="display:flex; gap: var(--space-sm); margin-top: var(--space-lg);">
+                <button type="submit" class="btn btn-primary">
+                    <i class="bi bi-save"></i> שמירה
+                </button>
+            </div>
+        </form>
+
+        {% if profile.updated_at %}
+        <div class="text-small text-muted" style="margin-top: var(--space-md);">
+            עודכן לאחרונה: {{ profile.updated_at | il_datetime }}
+        </div>
+        {% endif %}
+    </div>
+</div>
+
+<script>
+function addServiceRow() {
+    const tpl = document.getElementById("service-row-template");
+    const tbody = document.getElementById("services-tbody");
+    if (!tpl || !tbody) return;
+    // content.firstElementChild לוקח את ה-<tr> הראשון בתוך ה-template.
+    const clone = tpl.content.firstElementChild.cloneNode(true);
+    tbody.appendChild(clone);
+    // focus על השדה הראשון בשורה החדשה
+    const firstInput = clone.querySelector("input");
+    if (firstInput) firstInput.focus();
+}
+
+function removeServiceRow(btn) {
+    const row = btn.closest("tr.service-row");
+    if (row) row.remove();
+}
+</script>
+{% endblock %}
