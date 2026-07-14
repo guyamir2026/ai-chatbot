@@ -1,0 +1,146 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="page-header animate-fade-in">
+    <h1><i class="bi bi-sliders"></i> הגדרות AI</h1>
+</div>
+
+<!-- בחירת טון וביטויים -->
+<div class="card animate-slide-up stagger-1">
+    <div class="card-header">
+        <span><i class="bi bi-chat-heart"></i> טון תקשורת וביטויים מותאמים</span>
+        <span class="badge badge-primary">{{ tone_labels.get(settings.tone, settings.tone) }}</span>
+    </div>
+    <div class="card-body">
+        <form method="POST" action="{{ url_for('bot_settings') }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+
+            <!-- בחירת טון -->
+            <div class="form-group" style="margin-bottom: var(--space-md);">
+                <label class="form-label" style="font-weight: 600; font-size: 1.05rem;">בחירת טון תקשורת</label>
+                <div class="text-small text-muted" style="margin-bottom: var(--space-sm);">
+                    הטון קובע כיצד הבוט ידבר עם הלקוחות — ידידותי, רשמי, מכירתי או יוקרתי.
+                </div>
+                <div style="display: flex; flex-direction: column; gap: var(--space-sm);">
+                    {% for tone_key, tone_desc in tone_definitions.items() %}
+                    <label style="display: flex; align-items: flex-start; gap: var(--space-sm); cursor: pointer;
+                                  padding: var(--space-sm); border: 1px solid var(--border-color);
+                                  border-radius: var(--radius-md); transition: all 0.2s ease;
+                                  {% if settings.tone == tone_key %}background: var(--bg-primary-soft); border-color: var(--primary);{% endif %}">
+                        <input type="radio" name="tone" value="{{ tone_key }}"
+                               {% if settings.tone == tone_key %}checked{% endif %}
+                               style="margin-top: 4px; width: 18px; height: 18px; flex-shrink: 0;">
+                        <div>
+                            <div style="font-weight: 600;">{{ tone_labels.get(tone_key, tone_key) }}</div>
+                            <div class="text-small text-muted">{{ tone_desc }}</div>
+                        </div>
+                    </label>
+                    {% endfor %}
+                </div>
+            </div>
+
+            <!-- ביטויים מותאמים אישית -->
+            <div class="form-group" style="margin-bottom: var(--space-md);">
+                <label class="form-label" for="custom_phrases" style="font-weight: 600; font-size: 1.05rem;">
+                    ביטויים אופייניים לעסק (אופציונלי)
+                </label>
+                <div class="text-small text-muted" style="margin-bottom: var(--space-xs);">
+                    הזינו 2-3 ביטויים שבעל העסק משתמש בהם ביום-יום (למשל: "אהלן", "בשמחה", "בכיף").
+                    הבוט ישלב אותם באופן טבעי בשיחות.
+                </div>
+                <textarea class="form-control"
+                          id="custom_phrases"
+                          name="custom_phrases"
+                          rows="3"
+                          placeholder='למשל: "אהלן ברוכים הבאים", "בשמחה רבה", "תמיד כאן בשבילכם"'>{{ settings.custom_phrases }}</textarea>
+            </div>
+
+            <!-- פרומפט עסקי מותאם אישית -->
+            <div class="form-group" style="margin-bottom: var(--space-md);">
+                <label class="form-label" for="custom_prompt" style="font-weight: 600; font-size: 1.05rem;">
+                    פרומפט עסקי מותאם אישית (אופציונלי)
+                </label>
+                <div class="text-small text-muted" style="margin-bottom: var(--space-xs);">
+                    הנחיות מותאמות אישית לבוט — זהות, סגנון דיבור, כללי התנהגות.
+                    הנחיות אלו יוזרקו לפרומפט המערכת ויכוונו את התנהגות הבוט.
+                </div>
+                <textarea class="form-control"
+                          id="custom_prompt"
+                          name="custom_prompt"
+                          rows="6"
+                          placeholder="למשל: אתה הנציג הדיגיטלי של העסק. דבר בגוף ראשון רבים, השתמש בשפה חמה ומזמינה...">{{ settings.custom_prompt or '' }}</textarea>
+            </div>
+
+            <button type="submit" class="btn btn-primary">
+                <i class="bi bi-check-lg"></i> שמירת הגדרות
+            </button>
+        </form>
+    </div>
+</div>
+
+<!-- עריכת הפרומפט המלא -->
+<div class="card animate-slide-up stagger-3" style="margin-top: var(--space-sm);">
+    <div class="card-header">
+        <span>
+            <i class="bi bi-pencil-square"></i> פרומפט מערכת — עריכה ותצוגה מקדימה
+            {% if has_override %}
+                <span class="badge badge-warning" style="margin-right: var(--space-xs); font-size: 0.75rem;">נערך ידנית</span>
+            {% endif %}
+        </span>
+    </div>
+    <div class="card-body">
+        {% if has_override %}
+        <div style="background: #fff3cd; border: 1px solid #ffc107; border-radius: var(--radius-md);
+                    padding: var(--space-sm) var(--space-md); margin-bottom: var(--space-md);
+                    font-size: 0.9rem; color: #664d03;">
+            <i class="bi bi-info-circle"></i>
+            הפרומפט נערך ידנית — שינויים בטון, ביטויים או הנחיות עסקיות למעלה <b>לא ישפיעו</b> עד שתאפס לברירת מחדל.
+        </div>
+        {% endif %}
+
+        <form method="POST" action="{{ url_for('save_full_prompt') }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <textarea class="form-control"
+                      id="full_system_prompt"
+                      name="full_system_prompt"
+                      rows="20"
+                      style="font-family: monospace; font-size: 0.85rem; direction: rtl;
+                             white-space: pre-wrap; line-height: 1.7;">{{ preview_prompt }}</textarea>
+
+            <div style="display: flex; gap: var(--space-sm); margin-top: var(--space-md); flex-wrap: wrap;">
+                <button type="submit" class="btn btn-primary">
+                    <i class="bi bi-save"></i> שמירת פרומפט מלא
+                </button>
+                {% if has_override %}
+                <button type="button" class="btn btn-outline-secondary" onclick="resetToDefault()">
+                    <i class="bi bi-arrow-counterclockwise"></i> איפוס לברירת מחדל
+                </button>
+                {% endif %}
+            </div>
+        </form>
+
+        <div class="text-small text-muted" style="margin-top: var(--space-sm);">
+            {% if has_override %}
+                זהו הפרומפט שנשלח למודל כרגע. ניתן לערוך ישירות או לאפס לברירת המחדל שנבנית מהקוד.
+            {% else %}
+                זהו הפרומפט שנבנה אוטומטית מהקוד + ההגדרות למעלה. ניתן לערוך ישירות — לאחר שמירה, הפרומפט הערוך יהיה מה שנשלח למודל.
+            {% endif %}
+        </div>
+    </div>
+</div>
+
+<!-- טופס נסתר לאיפוס -->
+{% if has_override %}
+<form id="resetForm" method="POST" action="{{ url_for('reset_full_prompt') }}" style="display: none;">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+</form>
+{% endif %}
+
+<script>
+function resetToDefault() {
+    if (confirm('לאפס את הפרומפט לברירת המחדל שנבנית מהקוד?\nשינויים ידניים שביצעת יימחקו.')) {
+        document.getElementById('resetForm').submit();
+    }
+}
+</script>
+{% endblock %}
