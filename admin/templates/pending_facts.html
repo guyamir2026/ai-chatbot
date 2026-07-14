@@ -1,0 +1,78 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="page-header animate-fade-in">
+    <h1><i class="bi bi-clipboard-check"></i> תור אישור עובדות</h1>
+    {# total_pending — COUNT אמיתי מ-DB (לא facts|length שחסום ל-200).
+       CSRFProtect גלובלי דורש csrf_token בכל POST טופס שאינו HTMX. #}
+    {% if total_pending %}
+    <form method="post" action="/pending-facts/approve-all"
+          onsubmit="return confirm('לאשר את כל {{ total_pending }} העובדות הממתינות?');"
+          style="margin-right: auto;">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <button type="submit" class="btn btn-success">
+            <i class="bi bi-check-all"></i> אשר הכל ({{ total_pending }})
+        </button>
+    </form>
+    {% endif %}
+</div>
+
+{% if facts and total_pending > facts|length %}
+<div class="alert alert-info" style="margin-bottom: 1rem;">
+    <i class="bi bi-info-circle"></i>
+    מציג {{ facts|length }} מתוך {{ total_pending }} העובדות הממתינות.
+    "אשר הכל" יאשר את כולן.
+</div>
+{% endif %}
+
+<div class="card animate-slide-up">
+    <div class="card-body" style="padding: 0;">
+        <div class="table-wrapper">
+            <table id="pending-facts-table" {% if not facts %}style="display:none;"{% endif %}>
+                <thead>
+                    <tr>
+                        <th>עובדה</th>
+                        <th>סוג</th>
+                        <th>בטחון</th>
+                        <th>ציטוט מקור</th>
+                        <th>רגיש</th>
+                        <th>לקוחה</th>
+                        <th>נאמר</th>
+                        <th>פעולות</th>
+                    </tr>
+                </thead>
+                <tbody id="pending-facts-table-body"
+                       hx-get="/api/pending-facts/rows"
+                       hx-trigger="every 15s"
+                       hx-swap="innerHTML">
+                    {% for fact in facts %}
+                    {% include "partials/pending_fact_row.html" %}
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        <div id="pending-facts-empty-state" class="empty-state" {% if facts %}style="display:none;"{% endif %}>
+            <i class="bi bi-check-circle"></i>
+            <p>אין עובדות הממתינות לאישור.</p>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+(function() {
+    // הסתרת הטבלה / empty-state בהתאם לקיום שורות אחרי כל auto-refresh
+    var table = document.getElementById('pending-facts-table');
+    var emptyState = document.getElementById('pending-facts-empty-state');
+    if (!table) return;
+    document.body.addEventListener('htmx:afterSwap', function(e) {
+        if (e.detail.target && e.detail.target.id === 'pending-facts-table-body') {
+            var hasRows = e.detail.target.querySelector('tr') !== null;
+            table.style.display = hasRows ? '' : 'none';
+            if (emptyState) emptyState.style.display = hasRows ? 'none' : '';
+        }
+    });
+})();
+</script>
+{% endblock %}
