@@ -1,0 +1,50 @@
+{# state אופציונלי: "approved" / "rejected" — מציג שורה אפורה אחרי פעולה,
+   ה-fade-out מטופל ע"י hx-swap="outerHTML swap:0.5s" של הקורא. #}
+<tr id="pending-fact-row-{{ fact.id }}"
+    {% if state %}style="opacity:0.5; background:var(--bg-muted, #f5f5f5);"{% endif %}>
+    <td data-label="עובדה">{{ fact.content }}</td>
+    <td data-label="סוג">
+        <span class="badge badge-info">{{ fact.fact_type|translate_fact_type }}</span>
+    </td>
+    <td data-label="בטחון">
+        <span class="badge {{ fact.confidence|confidence_badge }}">
+            {{ '%.2f' % fact.confidence }}
+        </span>
+    </td>
+    <td data-label="ציטוט מקור" class="text-small text-muted"
+        title="{{ fact.evidence or '' }}">
+        {% set ev = fact.evidence or '' %}
+        {% if ev|length > 60 %}{{ ev[:60] }}…{% else %}{{ ev }}{% endif %}
+    </td>
+    <td data-label="רגיש">
+        {% if fact.requires_consent %}<span title="מידע רגיש">🔒</span>{% endif %}
+    </td>
+    <td data-label="לקוחה">
+        {{ (fact.username or fact.user_id) | mask_name }}
+    </td>
+    <td data-label="נאמר" class="text-small text-muted">
+        {{ fact.created_at|il_datetime }}
+    </td>
+    <td data-label="פעולות">
+        {% if state == "approved" %}
+        <span class="badge badge-success"><i class="bi bi-check-lg"></i> מאושר</span>
+        {% elif state == "rejected" %}
+        <span class="badge badge-muted"><i class="bi bi-x-lg"></i> נדחה</span>
+        {% else %}
+        <div class="actions-cell">
+            <button class="btn btn-success btn-sm"
+                    hx-post="/pending-facts/{{ fact.id }}/approve"
+                    hx-target="#pending-fact-row-{{ fact.id }}"
+                    hx-swap="outerHTML swap:0.5s">
+                <i class="bi bi-check-lg"></i> אשר
+            </button>
+            <button class="btn btn-secondary btn-sm"
+                    hx-post="/pending-facts/{{ fact.id }}/reject"
+                    hx-target="#pending-fact-row-{{ fact.id }}"
+                    hx-swap="outerHTML swap:0.5s">
+                <i class="bi bi-x-lg"></i> דחה
+            </button>
+        </div>
+        {% endif %}
+    </td>
+</tr>
